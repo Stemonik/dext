@@ -32,6 +32,30 @@ type
     property Active: Boolean read FActive write FActive;
   end;
 
+  TJsonDefaultsStatus = (jdsDraft, jdsActive, jdsClosed);
+
+  /// A plain class with an enum: its first value is also its default.
+  TJsonDefaultsEnumRow = class
+  private
+    FName: string;
+    FStatus: TJsonDefaultsStatus;
+    FActive: Boolean;
+  public
+    property Name: string read FName write FName;
+    property Status: TJsonDefaultsStatus read FStatus write FStatus;
+    property Active: Boolean read FActive write FActive;
+  end;
+
+  /// The same, as a record.
+  TJsonDefaultsRecord = record
+    Name: string;
+    Count: Integer;
+    Amount: Double;
+    When: TDateTime;
+    Active: Boolean;
+    Status: TJsonDefaultsStatus;
+  end;
+
   {$M+}
   /// Only the published property reaches the JSON.
   [JsonPublishedOnly]
@@ -76,6 +100,16 @@ type
     procedure PublishedOnly_OnlyPublished;
     [Test('JsonPublishedOnly is inherited')]
     procedure PublishedOnly_Inherited;
+    [Test('IgnoreDefaultValues drops the default values of record fields')]
+    procedure IgnoreDefaultValues_OnRecordFields;
+    [Test('IgnoreDefaultValues keeps the record fields that are not defaults')]
+    procedure IgnoreDefaultValues_Record_KeepsTheRest;
+    [Test('Without the options a record is written whole')]
+    procedure Default_Record_Unchanged;
+    [Test('IgnoreDefaultValues drops an enum at its first value (class, as string and as number)')]
+    procedure IgnoreDefaultValues_DropsEnumAtZero_Class;
+    [Test('IgnoreDefaultValues drops an enum at its first value (record, as string and as number)')]
+    procedure IgnoreDefaultValues_DropsEnumAtZero_Record;
   end;
 
 implementation
@@ -235,6 +269,71 @@ begin
   finally
     R.Free;
   end;
+end;
+
+function FullRecord: TJsonDefaultsRecord;
+begin
+  Result := Default(TJsonDefaultsRecord);
+  Result.Name := 'x';
+  Result.Count := 7;
+  Result.Amount := 1.5;
+  Result.When := EncodeDate(2026, 10, 6) + EncodeTime(13, 45, 0, 0);
+  Result.Active := True;
+  Result.Status := jdsClosed;
+end;
+
+function IgnoringDefaults: TJsonSettings;
+begin
+  Result := TJsonSettings.Default;
+  Result.IgnoreDefaultValues := True;
+end;
+
+procedure TJsonDefaultsTests.IgnoreDefaultValues_OnRecordFields;
+begin
+  // Before: the option had no effect on records (every field was written).
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    IgnoringDefaults)).Be('{}');
+end;
+
+procedure TJsonDefaultsTests.IgnoreDefaultValues_Record_KeepsTheRest;
+var
+  Json: string;
+begin
+  Json := TDextJson.Serialize<TJsonDefaultsRecord>(FullRecord, IgnoringDefaults);
+  Should(Json).Contain('"Name":"x"');
+  Should(Json).Contain('"Count":7');
+  Should(Json).Contain('"Amount":1.5');
+  Should(Json).Contain('"When":"2026-10-06T13:45:00.000"');
+  Should(Json).Contain('"Active":true');
+  Should(Json).Contain('"Status":2');
+end;
+
+procedure TJsonDefaultsTests.Default_Record_Unchanged;
+begin
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord))).Be(
+    '{"Name":"","Count":0,"Amount":0,"When":"1899-12-30T00:00:00.000",' +
+    '"Active":false,"Status":0}');
+end;
+
+procedure TJsonDefaultsTests.IgnoreDefaultValues_DropsEnumAtZero_Class;
+var
+  R: TJsonDefaultsEnumRow;
+begin
+  R := TJsonDefaultsEnumRow.Create; // Status = jdsDraft
+  try
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsString)).Be('{}');
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsNumber)).Be('{}');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TJsonDefaultsTests.IgnoreDefaultValues_DropsEnumAtZero_Record;
+begin
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    IgnoringDefaults.EnumAsString)).Be('{}');
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    IgnoringDefaults.EnumAsNumber)).Be('{}');
 end;
 
 end.

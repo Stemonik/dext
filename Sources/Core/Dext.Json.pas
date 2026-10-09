@@ -2326,6 +2326,28 @@ begin
       Continue;
     end;
 
+    // Default values: the same rules as SerializeObjectWithPlan for class
+    // properties. ShouldSkipField did this for record fields before the
+    // record plan, and is no longer called.
+    if FSettings.IgnoreDefaultValues then
+      case Item^.Kind of
+        skInteger:
+          if FieldValue.AsInt64 = 0 then
+            Continue;
+        skFloat, skDateTime:
+          if FieldValue.AsExtended = 0 then
+            Continue;
+        skString:
+          if FieldValue.AsString = '' then
+            Continue;
+        skBoolean:
+          if not FieldValue.AsBoolean then
+            Continue;
+        skEnumAsString, skEnumAsNumber:
+          if FieldValue.AsOrdinal = 0 then
+            Continue;
+      end;
+
     if (Item^.FieldTypeInfo = TypeInfo(TGUID)) then
     begin
       Result.SetString(FieldName, GetGUIDString(FieldValue));
