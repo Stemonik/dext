@@ -1592,7 +1592,8 @@ begin
           if FSettings.IgnoreDefaultValues and not PropValue.AsBoolean then
             Continue;
         skEnumAsString, skEnumAsNumber:
-          if FSettings.IgnoreDefaultValues and (PropValue.AsOrdinal = 0) then
+          if FSettings.IgnoreDefaultValues and not FSettings.FKeepDefaultEnums and
+            (PropValue.AsOrdinal = 0) then
             Continue;
         skDateTime:
           if PropValue.AsExtended = 0 then
@@ -2344,7 +2345,7 @@ begin
           if not FieldValue.AsBoolean then
             Continue;
         skEnumAsString, skEnumAsNumber:
-          if FieldValue.AsOrdinal = 0 then
+          if not FSettings.FKeepDefaultEnums and (FieldValue.AsOrdinal = 0) then
             Continue;
       end;
 
@@ -2504,7 +2505,7 @@ begin
         begin
           if not FieldValue.AsBoolean then Exit(True)
         end
-        else if FieldValue.AsOrdinal = 0 then Exit(True);
+        else if not FSettings.FKeepDefaultEnums and (FieldValue.AsOrdinal = 0) then Exit(True);
     end;
   end;
 

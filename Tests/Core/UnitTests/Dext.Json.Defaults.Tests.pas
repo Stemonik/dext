@@ -110,6 +110,16 @@ type
     procedure IgnoreDefaultValues_DropsEnumAtZero_Class;
     [Test('IgnoreDefaultValues drops an enum at its first value (record, as string and as number)')]
     procedure IgnoreDefaultValues_DropsEnumAtZero_Record;
+    [Test('KeepDefaultEnums keeps an enum at its first value (class, as string and as number)')]
+    procedure KeepDefaultEnums_KeepsEnumAtZero_Class;
+    [Test('KeepDefaultEnums keeps an enum at its first value (record, as string and as number)')]
+    procedure KeepDefaultEnums_KeepsEnumAtZero_Record;
+    [Test('KeepDefaultEnums does not keep a False Boolean')]
+    procedure KeepDefaultEnums_BooleanStillDropped;
+    [Test('KeepDefaultEnums leaves an enum that is not at its first value alone')]
+    procedure KeepDefaultEnums_OtherValuesUnchanged;
+    [Test('KeepDefaultEnums is off by default, and without IgnoreDefaultValues changes nothing')]
+    procedure KeepDefaultEnums_DefaultOff_AndInertAlone;
   end;
 
 implementation
@@ -334,6 +344,88 @@ begin
     IgnoringDefaults.EnumAsString)).Be('{}');
   Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
     IgnoringDefaults.EnumAsNumber)).Be('{}');
+end;
+
+procedure TJsonDefaultsTests.KeepDefaultEnums_KeepsEnumAtZero_Class;
+var
+  R: TJsonDefaultsEnumRow;
+  Json: string;
+begin
+  R := TJsonDefaultsEnumRow.Create;
+  try
+    // The enum stays; the other defaults are still dropped.
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsString.KeepDefaultEnums))
+      .Be('{"Status":"jdsDraft"}');
+    // A class property is written by name whatever the EnumStyle (the class
+    // plan always picks skEnumAsString), so only its presence is checked here.
+    Json := TDextJson.Serialize(R, IgnoringDefaults.EnumAsNumber.KeepDefaultEnums);
+    Should(Json).Contain('"Status":');
+    Should(Json).NotContain('Name');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TJsonDefaultsTests.KeepDefaultEnums_KeepsEnumAtZero_Record;
+begin
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    IgnoringDefaults.EnumAsString.KeepDefaultEnums)).Be('{"Status":"jdsDraft"}');
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    IgnoringDefaults.EnumAsNumber.KeepDefaultEnums)).Be('{"Status":0}');
+end;
+
+procedure TJsonDefaultsTests.KeepDefaultEnums_BooleanStillDropped;
+var
+  R: TJsonDefaultsEnumRow;
+  Rec: TJsonDefaultsRecord;
+begin
+  // A Boolean is an enumeration to RTTI, but False is not a business state.
+  R := TJsonDefaultsEnumRow.Create;
+  try
+    Should(TDextJson.Serialize(R, IgnoringDefaults.KeepDefaultEnums))
+      .NotContain('Active');
+  finally
+    R.Free;
+  end;
+  Rec := Default(TJsonDefaultsRecord);
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Rec,
+    IgnoringDefaults.KeepDefaultEnums)).NotContain('Active');
+end;
+
+procedure TJsonDefaultsTests.KeepDefaultEnums_OtherValuesUnchanged;
+var
+  R: TJsonDefaultsEnumRow;
+  Rec: TJsonDefaultsRecord;
+begin
+  R := TJsonDefaultsEnumRow.Create;
+  try
+    R.Status := jdsActive;
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsString))
+      .Be('{"Status":"jdsActive"}');
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsString.KeepDefaultEnums))
+      .Be('{"Status":"jdsActive"}');
+  finally
+    R.Free;
+  end;
+  Rec := Default(TJsonDefaultsRecord);
+  Rec.Status := jdsActive;
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Rec,
+    IgnoringDefaults.EnumAsNumber.KeepDefaultEnums)).Be('{"Status":1}');
+end;
+
+procedure TJsonDefaultsTests.KeepDefaultEnums_DefaultOff_AndInertAlone;
+var
+  R: TJsonDefaultsEnumRow;
+begin
+  Should(TJsonSettings.Default.FKeepDefaultEnums).BeFalse;
+  R := TJsonDefaultsEnumRow.Create;
+  try
+    // Without IgnoreDefaultValues every value is written anyway.
+    Should(TDextJson.Serialize(R, TJsonSettings.Default.KeepDefaultEnums))
+      .Be(TDextJson.Serialize(R, TJsonSettings.Default));
+  finally
+    R.Free;
+  end;
 end;
 
 end.
