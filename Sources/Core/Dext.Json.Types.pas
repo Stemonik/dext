@@ -204,7 +204,7 @@ begin
   Result.DateFormat := 'yyyy-mm-dd"T"hh:nn:ss.zzz';
   Result.DateFormatStyle := TDateFormat.ISO8601;
   Result.CaseStyle := TCaseStyle.Unchanged;
-  Result.EnumStyle := TEnumStyle.AsNumber;
+  Result.EnumStyle := TEnumStyle.AsString;
   Result.FCaseInsensitive := False;
   Result.FSmartRecordMapping := True; // Default is True
   Result.FZeroDateAsNull := False;

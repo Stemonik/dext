@@ -208,6 +208,9 @@ var
   Dt: TDateTime;
   GuidStr: string;
   G: TGUID;
+  EnumText: string;
+  N: Int64;
+  Data: PTypeData;
 begin
   P := Pointer(NativeUInt(Instance) + NativeUInt(FieldInfo.Offset));
   case FieldInfo.TypeKind of
@@ -243,8 +246,37 @@ begin
     tkEnumeration:
       if FieldInfo.TypeInfo = TypeInfo(Boolean) then
         PBoolean(P)^ := AReader.GetBoolean
-      else
-        AReader.Skip;
+      else if AReader.TokenType <> TJsonTokenType.NullValue then
+      begin
+        // By name or by number, whatever EnumStyle wrote it. What is not a
+        // value of the enum is refused, not stored.
+        if AReader.TokenType = TJsonTokenType.Number then
+        begin
+          EnumText := '';
+          N := AReader.GetInt64;
+        end
+        else
+        begin
+          EnumText := AReader.GetString;
+          N := GetEnumValue(FieldInfo.TypeInfo, EnumText);
+        end;
+        Data := GetTypeData(FieldInfo.TypeInfo);
+        if (N < Data^.MinValue) or (N > Data^.MaxValue) then
+        begin
+          if EnumText = '' then
+            EnumText := IntToStr(N);
+          raise EUtf8SerializationException.CreateFmt('%s is not a value of %s',
+            [EnumText, GetTypeName(FieldInfo.TypeInfo)]);
+        end;
+        case Data^.OrdType of
+          otSByte, otUByte:
+            PByte(P)^ := Byte(N);
+          otSWord, otUWord:
+            PWord(P)^ := Word(N);
+        else
+          PCardinal(P)^ := Cardinal(N);
+        end;
+      end;
         
     tkRecord:
       begin

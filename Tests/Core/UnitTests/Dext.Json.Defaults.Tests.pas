@@ -315,14 +315,14 @@ begin
   Should(Json).Contain('"Amount":1.5');
   Should(Json).Contain('"When":"2026-10-06T13:45:00.000"');
   Should(Json).Contain('"Active":true');
-  Should(Json).Contain('"Status":2');
+  Should(Json).Contain('"Status":"jdsClosed"');
 end;
 
 procedure TJsonDefaultsTests.Default_Record_Unchanged;
 begin
   Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord))).Be(
     '{"Name":"","Count":0,"Amount":0,"When":"1899-12-30T00:00:00.000",' +
-    '"Active":false,"Status":0}');
+    '"Active":false,"Status":"jdsDraft"}');
 end;
 
 procedure TJsonDefaultsTests.IgnoreDefaultValues_DropsEnumAtZero_Class;
@@ -349,18 +349,14 @@ end;
 procedure TJsonDefaultsTests.KeepDefaultEnums_KeepsEnumAtZero_Class;
 var
   R: TJsonDefaultsEnumRow;
-  Json: string;
 begin
   R := TJsonDefaultsEnumRow.Create;
   try
     // The enum stays; the other defaults are still dropped.
     Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsString.KeepDefaultEnums))
       .Be('{"Status":"jdsDraft"}');
-    // A class property is written by name whatever the EnumStyle (the class
-    // plan always picks skEnumAsString), so only its presence is checked here.
-    Json := TDextJson.Serialize(R, IgnoringDefaults.EnumAsNumber.KeepDefaultEnums);
-    Should(Json).Contain('"Status":');
-    Should(Json).NotContain('Name');
+    Should(TDextJson.Serialize(R, IgnoringDefaults.EnumAsNumber.KeepDefaultEnums))
+      .Be('{"Status":0}');
   finally
     R.Free;
   end;

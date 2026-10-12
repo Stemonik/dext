@@ -792,7 +792,11 @@ function TDataApiHandler.GetJsonSettings: TJsonSettings;
 begin
   Result := TJsonSettings.Default;
   Result.CaseStyle := FOptions.NamingStrategy;
-  Result.EnumStyle := FOptions.EnumStyle;
+  // EnumInherit (the default of the options): the global default style.
+  if FOptions.EnumStyle = TEnumStyle.EnumInherit then
+    Result.EnumStyle := TDextJson.GetDefaultSettings.EnumStyle
+  else
+    Result.EnumStyle := FOptions.EnumStyle;
 end;
 
 procedure TDataApiHandler.ApplyQueryParameters(const Context: IHttpContext; const ASpec: ISpecification);
