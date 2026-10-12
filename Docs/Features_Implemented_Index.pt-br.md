@@ -79,7 +79,7 @@ Veja a **[Matriz de Compatibilidade Delphi](Delphi_Compatibility_Matrix.md)** pa
 - **Driver Architecture** — `IDextJsonProvider` plugável (`DextJsonDataObjects` padrão, `System.JSON` alternativo). Drivers implementam `CreateObject`, `CreateArray`, `Parse`.
 - **TJsonSettings (Fluent Record API)** — Configuração imutável via chaining: `.CamelCase`, `.SnakeCase`, `.PascalCase`, `.EnumAsString`, `.EnumAsNumber`, `.IgnoreNullValues`, `.CaseInsensitive`, `.ISODateFormat`, `.UnixTimestamp`, `.CustomDateFormat(fmt)`, `.ServiceProvider(p)`.
 - **Automatic Casing** (`TCaseStyle`) — 5 modos: `CaseInherit`, `Unchanged`, `CamelCase`, `PascalCase`, `SnakeCase`. Aplicado automaticamente durante serialização.
-- **Enum Serialization** (`TEnumStyle`) — `AsNumber` (ordinal) ou `AsString` (nome RTTI do enum).
+- **Enum Serialization** (`TEnumStyle`) — `AsString` (nome RTTI do enum, o padrão) ou `AsNumber` (ordinal), igual para classes, records, arrays e listas; a leitura aceita os dois. Para manter números em tudo: `JsonDefaultSettings(TJsonSettings.Default.EnumAsNumber)`.
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` com tipagem forte (6 node types: Null, String, Number, Boolean, Object, Array).
 - **TJsonBuilder** — Builder fluente para construção programática de JSON sem strings.

@@ -367,10 +367,10 @@ begin
        end
        else
        begin
-         if ASettings.EnumStyle = TEnumStyle.AsString then
-           Result := '"' + GetEnumName(AVal.TypeInfo, AVal.AsOrdinal) + '"'
+         if ASettings.EnumStyle = TEnumStyle.AsNumber then
+           Result := IntToStr(AVal.AsOrdinal)
          else
-           Result := IntToStr(AVal.AsOrdinal);
+           Result := '"' + GetEnumName(AVal.TypeInfo, AVal.AsOrdinal) + '"';
        end;
    else
      Result := '"' + EscapeJsonString(AVal.ToString) + '"';
@@ -680,7 +680,8 @@ begin
   FSinkContext := AStream;
   FSinkWrite := WriteUtf8ToStream;
   FIndented := AIndented;
-  FSettings := TJsonSettings.Default;
+  // The global default (JsonDefaultSettings), like TDextJson.Serialize.
+  FSettings := TDextJson.GetDefaultSettings;
   if AIndented then 
     FSettings.Formatting := TJsonFormatting.Indented;
   FDepth := 0;
@@ -696,7 +697,8 @@ begin
   FSinkContext := AContext;
   FSinkWrite := AWrite;
   FIndented := AIndented;
-  FSettings := TJsonSettings.Default;
+  // The global default (JsonDefaultSettings), like TDextJson.Serialize.
+  FSettings := TDextJson.GetDefaultSettings;
   if AIndented then
     FSettings.Formatting := TJsonFormatting.Indented;
   FDepth := 0;
@@ -1032,10 +1034,10 @@ begin
         WriteBoolean(AValue.AsBoolean)
       else
       begin
-        if FSettings.EnumStyle = TEnumStyle.AsString then
-          WriteString(GetEnumName(AValue.TypeInfo, AValue.AsOrdinal))
+        if FSettings.EnumStyle = TEnumStyle.AsNumber then
+          WriteNumber(AValue.AsOrdinal)
         else
-          WriteNumber(AValue.AsOrdinal);
+          WriteString(GetEnumName(AValue.TypeInfo, AValue.AsOrdinal));
       end;
     tkClass, tkInterface:
       begin
@@ -1047,8 +1049,9 @@ begin
     tkRecord, tkMRecord:
       begin
         CheckComma;
-        // For normal records that are not SmartProps, use the default serializer
-        WriteRaw(TDextJson.Serialize(AValue));
+        // For normal records that are not SmartProps, use the full serializer
+        // with this writer's settings, as for classes above
+        WriteRaw(TDextJson.Serialize(AValue, FSettings));
         if FDepth > 0 then
           FNeedComma[FDepth - 1] := True;
       end;

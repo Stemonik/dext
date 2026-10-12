@@ -79,7 +79,7 @@ See the **[Delphi Compatibility Matrix](Delphi_Compatibility_Matrix.md)** for fe
 - **Driver Architecture** — Pluggable `IDextJsonProvider` (`DextJsonDataObjects` default, `System.JSON` alternative). Drivers implement `CreateObject`, `CreateArray`, `Parse`.
 - **TJsonSettings (Fluent Record API)** — Immutable configuration via chaining: `.CamelCase`, `.SnakeCase`, `.PascalCase`, `.EnumAsString`, `.EnumAsNumber`, `.IgnoreNullValues`, `.CaseInsensitive`, `.ISODateFormat`, `.UnixTimestamp`, `.CustomDateFormat(fmt)`, `.ServiceProvider(p)`.
 - **Automatic Casing** (`TCaseStyle`) — 5 modes: `CaseInherit`, `Unchanged`, `CamelCase`, `PascalCase`, `SnakeCase`. Automatically applied during serialization.
-- **Enum Serialization** (`TEnumStyle`) — `AsNumber` (ordinal) or `AsString` (RTTI enum name).
+- **Enum Serialization** (`TEnumStyle`) — `AsString` (RTTI enum name, the default) or `AsNumber` (ordinal), the same for classes, records, arrays and lists; reading accepts both. To keep numbers everywhere: `JsonDefaultSettings(TJsonSettings.Default.EnumAsNumber)`.
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` with strong typing (6 node types: Null, String, Number, Boolean, Object, Array).
 - **TJsonBuilder** — Fluent builder for programmatic JSON construction without strings.

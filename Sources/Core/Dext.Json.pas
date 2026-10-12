@@ -859,6 +859,27 @@ begin
   Result := GUIDToString(G);
 end;
 
+// Reads an enum from its name or from its number, whatever EnumStyle wrote
+// it. A number outside the enum raises: it would otherwise become a value the
+// enum does not have.
+function EnumFromJsonNode(AType: PTypeInfo; const ANode: IDextJsonNode): TValue;
+var
+  Data: PTypeData;
+  N: Int64;
+begin
+  if ANode.GetNodeType = jntNumber then
+  begin
+    Data := GetTypeData(AType);
+    N := ANode.AsInt64;
+    if (N < Data^.MinValue) or (N > Data^.MaxValue) then
+      raise EDextJsonException.CreateFmt('%d is not a value of %s',
+        [N, GetTypeName(AType)]);
+    Result := TValue.FromOrdinal(AType, N);
+  end
+  else
+    Result := TValue.FromOrdinal(AType, GetEnumValue(AType, ANode.AsString));
+end;
+
 { TDextSerializer }
 
 type
@@ -1621,10 +1642,13 @@ begin
         Result.SetString(Item^.JsonName, PropValue.AsString);
       skBoolean:
         Result.SetBoolean(Item^.JsonName, PropValue.AsBoolean);
-      skEnumAsString:
-        Result.SetString(Item^.JsonName, GetEnumName(Item^.ValueTypeInfo, PropValue.AsOrdinal));
-      skEnumAsNumber:
-        Result.SetInt64(Item^.JsonName, PropValue.AsOrdinal);
+      skEnumAsString, skEnumAsNumber:
+        // The plan is cached per type and shared across settings, so the
+        // style is read here, when writing.
+        if FSettings.EnumStyle = TEnumStyle.AsNumber then
+          Result.SetInt64(Item^.JsonName, PropValue.AsOrdinal)
+        else
+          Result.SetString(Item^.JsonName, GetEnumName(Item^.ValueTypeInfo, PropValue.AsOrdinal));
       skRecordGUID:
         Result.SetString(Item^.JsonName, GetGUIDString(PropValue));
       skRecordUUID:
@@ -1929,6 +1953,11 @@ begin
                   Val := TValue.FromOrdinal(Prop.PropertyType.Handle, Node.AsInt64);
                 tkInt64:
                   Val := Node.AsInt64;
+                tkEnumeration:
+                  // An enum written with EnumAsNumber. A name arrives as a
+                  // string (jntString) and is converted by the handler.
+                  if Prop.PropertyType.Handle <> TypeInfo(Boolean) then
+                    Val := EnumFromJsonNode(Prop.PropertyType.Handle, Node);
                 tkFloat:
                   if Prop.PropertyType.Handle = TypeInfo(TDateTime) then
                     Val := ISO8601ToDate(Node.AsString)
@@ -2230,7 +2259,7 @@ begin
           if AType = TypeInfo(Boolean) then
             Result := TValue.From<Boolean>(AJson.GetBoolean(ValueField))
           else
-            Result := TValue.FromOrdinal(AType, GetEnumValue(AType, AJson.GetString(ValueField)));
+            Result := EnumFromJsonNode(AType, AJson.GetNode(ValueField));
         end;
 
       else
@@ -2416,12 +2445,11 @@ begin
 
       skEnumAsString, skEnumAsNumber:
         begin
-          case FSettings.EnumStyle of
-            TEnumStyle.AsString:
-              Result.SetString(FieldName, GetEnumName(Item^.FieldTypeInfo, FieldValue.AsOrdinal));
-            TEnumStyle.AsNumber:
-              Result.SetInteger(FieldName, FieldValue.AsOrdinal);
-          end;
+          // AsString, and EnumInherit (no style of its own), write the name.
+          if FSettings.EnumStyle = TEnumStyle.AsNumber then
+            Result.SetInteger(FieldName, FieldValue.AsOrdinal)
+          else
+            Result.SetString(FieldName, GetEnumName(Item^.FieldTypeInfo, FieldValue.AsOrdinal));
         end;
 
       skRecord:
@@ -2553,6 +2581,8 @@ begin
       begin
         if AValue.TypeInfo = TypeInfo(Boolean) then
           Result.SetBoolean(ValueField, AValue.AsBoolean)
+        else if FSettings.EnumStyle = TEnumStyle.AsNumber then
+          Result.SetInt64(ValueField, AValue.AsOrdinal)
         else
           Result.SetString(ValueField, GetEnumName(AValue.TypeInfo, AValue.AsOrdinal));
       end;
@@ -2713,7 +2743,7 @@ begin
           if ElementType = TypeInfo(Boolean) then
             ElementValue := TValue.From<Boolean>(AJson.GetBoolean(I))
           else
-            ElementValue := TValue.FromOrdinal(ElementType, GetEnumValue(ElementType, AJson.GetString(I)));
+            ElementValue := EnumFromJsonNode(ElementType, AJson.GetNode(I));
         tkRecord:
           begin
             if ElementType = TypeInfo(TGUID) then
@@ -2916,7 +2946,7 @@ begin
             if ElementType = TypeInfo(Boolean) then
               ElementValue := TValue.From<Boolean>(AJson.GetBoolean(I))
             else
-              ElementValue := TValue.FromOrdinal(ElementType, GetEnumValue(ElementType, AJson.GetString(I)));
+              ElementValue := EnumFromJsonNode(ElementType, AJson.GetNode(I));
           tkRecord:
             if ElementType = TypeInfo(TGUID) then
               ElementValue := TValue.From<TGUID>(StringToGUID(AJson.GetString(I)))
@@ -3135,6 +3165,8 @@ begin
       tkEnumeration:
         if ElementType = TypeInfo(Boolean) then
           Result.Add(ElementValue.AsBoolean)
+        else if FSettings.EnumStyle = TEnumStyle.AsNumber then
+          Result.Add(Int64(ElementValue.AsOrdinal))
         else
           Result.Add(GetEnumName(ElementType, ElementValue.AsOrdinal));
       tkRecord:
@@ -3228,6 +3260,8 @@ begin
         tkEnumeration:
           if ElementValue.TypeInfo = TypeInfo(Boolean) then
             Result.Add(ElementValue.AsBoolean)
+          else if FSettings.EnumStyle = TEnumStyle.AsNumber then
+            Result.Add(Int64(ElementValue.AsOrdinal))
           else
             Result.Add(GetEnumName(ElementValue.TypeInfo, ElementValue.AsOrdinal));
       else
@@ -3282,6 +3316,8 @@ begin
           tkEnumeration:
             if ElementValue.TypeInfo = TypeInfo(Boolean) then
               Result.Add(ElementValue.AsBoolean)
+            else if FSettings.EnumStyle = TEnumStyle.AsNumber then
+              Result.Add(Int64(ElementValue.AsOrdinal))
             else
               Result.Add(GetEnumName(ElementValue.TypeInfo, ElementValue.AsOrdinal));
         else
