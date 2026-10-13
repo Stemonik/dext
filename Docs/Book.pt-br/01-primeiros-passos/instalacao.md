@@ -220,6 +220,22 @@ O gerenciador de memória do Dext (`Dext.MM.pas`) reside na pasta `Sources\Commo
        ...
      ```
 
+#### Escolhendo o gerenciador de memória
+
+A escolha do gerenciador de memória é da aplicação. O `Dext.MM` oferece dois, cada um com o seu define (exclusivos):
+
+| Define | Gerenciador | Notas |
+|---|---|---|
+| nenhum | o gerenciador da RTL do Delphi | faz o relatório de leaks no encerramento (`ReportMemoryLeaksOnShutdown`): o certo para procurar leaks |
+| `DEXT_USE_FASTMM5` | FastMM5 | licença dupla (GPL ou comercial) |
+| `DEXT_USE_MIMALLOC` | mimalloc (Microsoft, licença MIT), **só Windows** | para servidores com muitas threads; sem relatório de leaks |
+
+Com `DEXT_USE_MIMALLOC`, distribua `mimalloc.dll` e `mimalloc-redirect.dll` da versão oficial x64 ao lado do executável: as funções são importadas estaticamente, então sem elas o programa não inicia e o Windows diz qual DLL falta. `IsMiMallocEnabled` diz se o mimalloc é o gerenciador ativo e `MiMallocVersion` dá a versão. O `Dext.MM` só o instala se nada alocou antes, por isso deve ser a primeira unit; caso contrário fica o gerenciador da RTL e `IsMiMallocEnabled` retorna False.
+
+Por que mimalloc em um servidor: um par alocação e liberação medido em uma máquina de 8 vCPU levou 36 ns em uma thread e 779 ns em seis com o FastMM5, e cerca de 20 ns com qualquer número de threads com o mimalloc 2.5. No mesmo servidor Dext, um ping passou de ~48.000 para ~79.000 requisições por segundo, sem mudar mais nada.
+
+Uma configuração comum: o gerenciador da RTL nas builds de Debug para ver os leaks, o mimalloc nas builds de Release (`DEXT_USE_MIMALLOC` nos defines condicionais da configuração Release).
+
 ### 2.9. Integrações Opcionais (WebStencils e TestInsight)
 
 Por motivos de portabilidade e compatibilidade de instalação automatizada, as units de integrações opcionais não são incluídas de forma estática nos pacotes principais do framework:
