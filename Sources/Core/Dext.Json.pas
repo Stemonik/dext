@@ -1061,12 +1061,12 @@ begin
        ((Prop.Parent.Name = 'TObject') or (Prop.Parent.Name = 'TInterfacedObject')) then
       Continue;
 
-    // Skip if has JsonIgnore attribute (unless it ignores only on read)
+    // Skip if has JsonIgnore attribute (unless it ignores only on read).
+    // [NotMapped] is about the database only: it does not touch the JSON.
     ShouldSkip := False;
     for Attr in Prop.GetAttributes do
     begin
-      if ((Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresWrite) or
-         (Attr.ClassName = 'NotMappedAttribute') then
+      if (Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresWrite then
       begin
         ShouldSkip := True;
         Break;
@@ -1289,7 +1289,6 @@ var
   LTypeInfo: PTypeInfo;
   LTypeKind: TTypeKind;
   Item: TRecordPlanItem;
-  ShouldSkip: Boolean;
   Style: TCaseStyle;
   SmartMap: Boolean;
   NameStr: string;
@@ -1336,14 +1335,12 @@ begin
     Field := Fields[I];
 
     // Check if has JsonIgnore attribute. The plan serves both directions: a
-    // field ignored in one direction only stays, marked.
-    ShouldSkip := False;
+    // field ignored in one direction only stays, marked. [NotMapped] is about
+    // the database only: it does not touch the JSON.
     Item := Default(TRecordPlanItem);
     for Attr in Field.GetAttributes do
     begin
-      if Attr.ClassName = 'NotMappedAttribute' then
-        ShouldSkip := True
-      else if Attr is JsonIgnoreAttribute then
+      if Attr is JsonIgnoreAttribute then
       begin
         if JsonIgnoreAttribute(Attr).IgnoresWrite then
           Item.IgnoreOnWrite := True;
@@ -1351,7 +1348,7 @@ begin
           Item.IgnoreOnRead := True;
       end;
     end;
-    if ShouldSkip or (Item.IgnoreOnWrite and Item.IgnoreOnRead) then
+    if Item.IgnoreOnWrite and Item.IgnoreOnRead then
       Continue;
 
     Item.OriginalFieldName := Field.Name;

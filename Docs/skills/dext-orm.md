@@ -152,7 +152,7 @@ Always use native Smart Property aliases (**IntType**, **StringType**, **DoubleT
 | | `[MinLength(N)]` | Property | Min string/array length |
 | | `[Precision(P, S)]` | Property | Numeric precision and scale |
 | | `[DefaultValue(Val)]` | Property | Default value when DB returns NULL |
-| | `[NotMapped]` | Property | Exclude from mapping and JSON serialization |
+| | `[NotMapped]` | Property | Exclude from mapping (database only; JSON is left to `[JsonIgnore]`) |
 | | `[JsonColumn]` | Property | Marks field as JSON/JSONB column |
 | | `[TypeConverter(Class)]`| Property | Map custom type converter class |
 | **Audit & Concurrency** | `[CreatedAt]` | Property | Timestamp set automatically on INSERT |
