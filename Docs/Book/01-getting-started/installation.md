@@ -222,6 +222,22 @@ The Dext memory manager (`Dext.MM.pas`) resides in the `Sources\Common` folder. 
        ...
      ```
 
+#### Choosing the memory manager
+
+The choice of memory manager belongs to the application. `Dext.MM` offers two, each behind its own define (exclusive):
+
+| Define | Manager | Notes |
+|---|---|---|
+| none | the Delphi RTL manager | gives the leak report on shutdown (`ReportMemoryLeaksOnShutdown`): the right one to look for leaks |
+| `DEXT_USE_FASTMM5` | FastMM5 | dual license (GPL or commercial) |
+| `DEXT_USE_MIMALLOC` | mimalloc (Microsoft, MIT license), **Windows only** | for servers with many threads; no leak report |
+
+With `DEXT_USE_MIMALLOC`, deploy `mimalloc.dll` and `mimalloc-redirect.dll` from the official x64 release next to the executable: the functions are imported statically, so without them the program does not start and Windows says which DLL is missing. `IsMiMallocEnabled` tells whether mimalloc is the active manager and `MiMallocVersion` gives its version. `Dext.MM` installs it only if nothing has allocated before, which is why it must be the first unit; otherwise the RTL manager stays and `IsMiMallocEnabled` returns False.
+
+Why mimalloc on a server: an allocation and release pair measured on an 8-vCPU machine took 36 ns on one thread and 779 ns on six with FastMM5, and about 20 ns on any number of threads with mimalloc 2.5. On the same Dext server, a ping went from ~48,000 to ~79,000 requests per second, with nothing else changed.
+
+A common setup: the RTL manager in Debug builds to see leaks, mimalloc in Release builds (`DEXT_USE_MIMALLOC` in the Release configuration's conditional defines).
+
 ### 2.9. Optional Integrations (WebStencils and TestInsight)
 
 For portability and automated installation compatibility, optional integration units are not statically included in the main packages of the framework:
