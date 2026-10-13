@@ -239,6 +239,37 @@ Only `.Where(expression)` and `.OrderBy(prop)` benefit from Smart Properties.
 - `EndsWith('text')`
 - `Like('%text%')`
 
+`Contains`, `StartsWith` and `EndsWith` match their value literally: Dext escapes `%`, `_` and the escape character, and sends the pattern as a **parameter**. `Like` takes the pattern as you write it.
+
+### Prefix search and indexes
+
+`EndsWith` and `Contains` start with a wildcard, so no database can answer them from a B-tree index. `StartsWith` can, but whether it does depends on the database, not on Dext. Measured on one million rows with server-side parameters on Firebird 5, PostgreSQL 14 and MariaDB, and from the query plan on SQLite 3.50:
+
+| Database | SQL generated | Uses a plain index? | What you need |
+|---|---|---|---|
+| Firebird | `col STARTING WITH :p` | Yes | Nothing |
+| MariaDB / MySQL | `col LIKE :p ESCAPE '!'` | Yes (range scan) | Nothing |
+| PostgreSQL | `col LIKE :p ESCAPE '!'` | **No**, unless the database collation is `C` | A prefix-capable index (below) |
+| SQLite | `col LIKE :p ESCAPE '!'` | Only if the index is `COLLATE NOCASE` | A `NOCASE` index, or `PRAGMA case_sensitive_like = ON` with a plain index |
+
+**PostgreSQL.** With a linguistic collation (`en_US.UTF-8`, `Italian_Italy.1252`, ...) a plain B-tree index is never used for `LIKE`, not even with a literal pattern: on 1,000,000 rows that is a sequential scan of about 140 ms instead of about 1 ms. Add a second index that can serve prefix matches, next to the plain one. Keep the plain one: the prefix index does not serve `ORDER BY`, nor comparisons in the database collation.
+
+```sql
+CREATE INDEX ix_customers_name_prefix ON customers (name COLLATE "C");
+-- or
+CREATE INDEX ix_customers_name_prefix ON customers (name varchar_pattern_ops);
+```
+
+`CreateIndex` in a migration quotes every column name, so write this one with `Sql`:
+
+```pascal
+Builder.Sql('CREATE INDEX ix_customers_name_prefix ON customers (name COLLATE "C")');
+```
+
+PostgreSQL uses it with custom plans, which is what it picks for a reused prepared statement in the default `plan_cache_mode = auto`. Under `force_generic_plan` no `LIKE` uses an index.
+
+**Do not replace `StartsWith` with a range** (`col >= :a AND col < :b`). It uses the plain index, but returns wrong rows: with a linguistic collation on PostgreSQL (`'ab'` found 11 rows instead of 9, `'Ab'` 9 instead of 1), and on MariaDB with trailing spaces (PAD SPACE collations). On PostgreSQL 14, `starts_with(col, $1)` and `col ^@ $1` do not use a B-tree either.
+
 ### Boolean Logic
 ```pascal
 var u := TUser.Props;
