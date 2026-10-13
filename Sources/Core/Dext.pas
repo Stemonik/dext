@@ -274,6 +274,7 @@ type
   DextJsonAttribute = Dext.Json.DextJsonAttribute;
   JsonNameAttribute = Dext.Json.JsonNameAttribute;
   JsonIgnoreAttribute = Dext.Json.JsonIgnoreAttribute;
+  TJsonIgnoreMode = Dext.Json.TJsonIgnoreMode;
   JsonFormatAttribute = Dext.Json.JsonFormatAttribute;
   JsonStringAttribute = Dext.Json.JsonStringAttribute;
   JsonNumberAttribute = Dext.Json.JsonNumberAttribute;

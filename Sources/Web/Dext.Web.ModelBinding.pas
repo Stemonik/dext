@@ -1366,6 +1366,18 @@ begin
   end;
 end;
 
+/// <summary>True for a field that the JSON does not set: [JsonIgnore] or
+///   [JsonIgnore(TJsonIgnoreMode.OnRead)].</summary>
+function IgnoredOnRead(AField: TRttiField): Boolean;
+var
+  Attr: TCustomAttribute;
+begin
+  for Attr in AField.GetAttributes do
+    if (Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresRead then
+      Exit(True);
+  Result := False;
+end;
+
 /// <summary>True for the field types the strict conversions handle. The
 ///   others (nested records, arrays, Nullable, ...) keep the previous
 ///   behaviour of this binder.</summary>
@@ -1613,8 +1625,9 @@ begin
               begin
                 FoundInBody := False;
                 
-                // First, try to find in JSON body
-                if (BodyJsonObj <> nil) then
+                // First, try to find in JSON body (not for a field the JSON
+                // must not set: [JsonIgnore] / [JsonIgnore(OnRead)])
+                if (BodyJsonObj <> nil) and not IgnoredOnRead(Field) then
                 begin
                   // Try to find the field (case-insensitive)
                   JsonFieldName := FieldName;
