@@ -39,7 +39,11 @@ type
   ///   Configuration options for the Dext high-performance server engines.
   /// </summary>
   TServerEngineOptions = record
-    /// <summary>Number of I/O worker threads. 0 means auto-detect (CPU count).</summary>
+    /// <summary>
+    ///   Number of I/O worker threads. 0 means auto-detect: the CPU count, and
+    ///   for Http.Sys four per logical processor (the extra workers take
+    ///   requests while handlers wait on databases or remote calls).
+    /// </summary>
     IoThreadCount: Integer;
     /// <summary>Size of the receive buffer per connection in bytes (default: 8192).</summary>
     ReceiveBufferSize: Integer;
@@ -60,10 +64,11 @@ type
     /// <summary>Outstanding Http.Sys receives per I/O worker (default: 2).</summary>
     OutstandingReceiveDepth: Integer;
     /// <summary>
-    ///   Total outstanding Http.Sys receives. 0 (default) keeps
-    ///   IoThreadCount x OutstandingReceiveDepth. Set it to run more workers
-    ///   than receives: extra workers then only pick up requests while others
-    ///   are blocked (database, file, remote call).
+    ///   Total outstanding Http.Sys receives. 0 (default) means: one per
+    ///   logical processor when IoThreadCount is 0 (the depth is then not
+    ///   used), and IoThreadCount x OutstandingReceiveDepth when IoThreadCount
+    ///   is set. With more workers than receives, the extra workers only pick
+    ///   up requests while others are blocked (database, file, remote call).
     /// </summary>
     OutstandingReceives: Integer;
     /// <summary>
@@ -165,7 +170,7 @@ type
     /// <summary>Configures outstanding Http.Sys receives per worker (1..8).</summary>
     function WithOutstandingReceiveDepth(
       ADepth: Integer): TServerEngineOptions;
-    /// <summary>Configures the total outstanding Http.Sys receives (0 = workers x depth).</summary>
+    /// <summary>Configures the total outstanding Http.Sys receives (0 = one per logical processor, or workers x depth when IoThreadCount is set).</summary>
     function WithOutstandingReceives(ACount: Integer): TServerEngineOptions;
     /// <summary>Configures the http.sys request-queue length (0 = kernel default).</summary>
     function WithQueueLength(ALength: Integer): TServerEngineOptions;
