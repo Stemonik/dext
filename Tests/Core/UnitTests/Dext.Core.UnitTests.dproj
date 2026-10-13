@@ -137,6 +137,7 @@
         <DCCReference Include="Dext.Json.Regression.Tests.pas"/>
         <DCCReference Include="Dext.Json.Defaults.Tests.pas"/>
         <DCCReference Include="Dext.Json.EnumStyle.Tests.pas"/>
+        <DCCReference Include="Dext.Json.Ignore.Tests.pas"/>
         <DCCReference Include="Dext.Json.Nullable.Tests.pas"/>
         <DCCReference Include="Dext.Json.RecordProperties.Tests.pas"/>
         <DCCReference Include="Dext.Resilience.Tests.pas"/>

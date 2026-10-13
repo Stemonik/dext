@@ -77,9 +77,36 @@ type
   end;
 
   /// <summary>
-  ///   Indicates that a field should be ignored during serialization and deserialization.
+  ///   When [JsonIgnore] applies.
   /// </summary>
-  JsonIgnoreAttribute = class(DextJsonAttribute);
+  {$SCOPEDENUMS ON}
+  TJsonIgnoreMode = (
+    /// <summary>Neither written nor read (the default).</summary>
+    Always,
+    /// <summary>Not written, read: a value that comes in and never goes back out (a password).</summary>
+    OnWrite,
+    /// <summary>Written, not read: a value the server decides (who created the row, a computed total).</summary>
+    OnRead
+  );
+  {$SCOPEDENUMS OFF}
+
+  /// <summary>
+  ///   Indicates that a field should be ignored during serialization and
+  ///   deserialization, or in one direction only with a TJsonIgnoreMode:
+  ///   [JsonIgnore(TJsonIgnoreMode.OnRead)].
+  /// </summary>
+  JsonIgnoreAttribute = class(DextJsonAttribute)
+  private
+    FMode: TJsonIgnoreMode;
+  public
+    constructor Create; overload;
+    constructor Create(AMode: TJsonIgnoreMode); overload;
+    /// <summary>True when the member is not written to the JSON.</summary>
+    function IgnoresWrite: Boolean;
+    /// <summary>True when the member is not read from the JSON.</summary>
+    function IgnoresRead: Boolean;
+    property Mode: TJsonIgnoreMode read FMode;
+  end;
 
   /// <summary>
   ///   On a class: only its published properties are serialized. Public
@@ -337,6 +364,10 @@ type
     ForceString: Boolean;
     ForceNumber: Boolean;
     FieldTypeInfo: PTypeInfo;
+    /// <summary>[JsonIgnore(OnWrite)]: read, not written.</summary>
+    IgnoreOnWrite: Boolean;
+    /// <summary>[JsonIgnore(OnRead)]: written, not read.</summary>
+    IgnoreOnRead: Boolean;
   end;
   PRecordPlanItem = ^TRecordPlanItem;
 
@@ -353,6 +384,9 @@ type
   TSerializationPlan = record
     Items: TArray<TSerializationPlanItem>;
     Count: Integer;
+    /// <summary>[JsonPublishedOnly] on the class or on an ancestor: reading
+    ///   uses it too.</summary>
+    PublishedOnly: Boolean;
   end;
   PSerializationPlan = ^TSerializationPlan;
 
@@ -681,6 +715,29 @@ begin
   end;
 end;
 
+{ JsonIgnoreAttribute }
+
+constructor JsonIgnoreAttribute.Create;
+begin
+  Create(TJsonIgnoreMode.Always);
+end;
+
+constructor JsonIgnoreAttribute.Create(AMode: TJsonIgnoreMode);
+begin
+  inherited Create;
+  FMode := AMode;
+end;
+
+function JsonIgnoreAttribute.IgnoresWrite: Boolean;
+begin
+  Result := FMode <> TJsonIgnoreMode.OnRead;
+end;
+
+function JsonIgnoreAttribute.IgnoresRead: Boolean;
+begin
+  Result := FMode <> TJsonIgnoreMode.OnWrite;
+end;
+
 { JsonNameAttribute }
 
 constructor JsonNameAttribute.Create(const AName: string);
@@ -987,6 +1044,7 @@ begin
         PublishedOnly := True;
     Base := Base.BaseType;
   end;
+  Holder.Plan.PublishedOnly := PublishedOnly;
 
   for I := 0 to High(Props) do
   begin
@@ -1003,11 +1061,12 @@ begin
        ((Prop.Parent.Name = 'TObject') or (Prop.Parent.Name = 'TInterfacedObject')) then
       Continue;
 
-    // Skip if has JsonIgnore attribute
+    // Skip if has JsonIgnore attribute (unless it ignores only on read)
     ShouldSkip := False;
     for Attr in Prop.GetAttributes do
     begin
-      if (Attr is JsonIgnoreAttribute) or (Attr.ClassName = 'NotMappedAttribute') then
+      if ((Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresWrite) or
+         (Attr.ClassName = 'NotMappedAttribute') then
       begin
         ShouldSkip := True;
         Break;
@@ -1276,20 +1335,25 @@ begin
   begin
     Field := Fields[I];
 
-    // Check if has JsonIgnore attribute
+    // Check if has JsonIgnore attribute. The plan serves both directions: a
+    // field ignored in one direction only stays, marked.
     ShouldSkip := False;
+    Item := Default(TRecordPlanItem);
     for Attr in Field.GetAttributes do
     begin
-      if (Attr is JsonIgnoreAttribute) or (Attr.ClassName = 'NotMappedAttribute') then
+      if Attr.ClassName = 'NotMappedAttribute' then
+        ShouldSkip := True
+      else if Attr is JsonIgnoreAttribute then
       begin
-        ShouldSkip := True;
-        Break;
+        if JsonIgnoreAttribute(Attr).IgnoresWrite then
+          Item.IgnoreOnWrite := True;
+        if JsonIgnoreAttribute(Attr).IgnoresRead then
+          Item.IgnoreOnRead := True;
       end;
     end;
-    if ShouldSkip then
+    if ShouldSkip or (Item.IgnoreOnWrite and Item.IgnoreOnRead) then
       Continue;
 
-    Item := Default(TRecordPlanItem);
     Item.OriginalFieldName := Field.Name;
     Item.Field := Field;
     Item.CustomName := '';
@@ -1737,6 +1801,9 @@ var
   TypeField: TDextFieldPlan;
   DirectField: TDextFieldPlan;
   DirectFound: Boolean;
+  PublishedOnly: Boolean;
+  IgnoreRead: Boolean;
+  HasName: Boolean;
 begin
   if AJson = nil then
     Exit(TValue.Empty);
@@ -1761,10 +1828,16 @@ begin
     TypeFields := TypePlan.GetFields
   else
     TypeFields := nil;
+  // [JsonPublishedOnly] restricts reading as it restricts writing: the class
+  // plan knows it.
+  PublishedOnly := (AType <> nil) and (AType^.Kind = tkClass) and
+    GetOrBuildPlan(AType)^.PublishedOnly;
   try
     for Prop in RttiType.GetProperties do
     begin
       if (Prop.Visibility <> mvPublic) and (Prop.Visibility <> mvPublished) then
+        Continue;
+      if PublishedOnly and (Prop.Visibility <> mvPublished) then
         Continue;
 
       if not Prop.IsWritable then
@@ -1772,13 +1845,19 @@ begin
 
       PropName := ApplyCaseStyle(Prop.Name);
 
-      // Check JsonName
+      // Check JsonName, and JsonIgnore unless it ignores only on write
+      HasName := False;
+      IgnoreRead := False;
       for Attr in Prop.GetAttributes do
-        if Attr is JsonNameAttribute then
+        if (Attr is JsonNameAttribute) and not HasName then
         begin
           PropName := JsonNameAttribute(Attr).Name;
-          Break;
-        end;
+          HasName := True;
+        end
+        else if (Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresRead then
+          IgnoreRead := True;
+      if IgnoreRead then
+        Continue;
 
       ActualPropName := PropName;
       Found := AJson.Contains(PropName);
@@ -2066,6 +2145,8 @@ begin
   for I := 0 to Plan.Count - 1 do
   begin
     Item := @Plan.Items[I];
+    if Item^.IgnoreOnRead then
+      Continue;
 
     FieldName := ResolveFieldName(Item);
     Node := AJson.GetNode(FieldName);
@@ -2337,6 +2418,8 @@ begin
   for I := 0 to Plan.Count - 1 do
   begin
     Item := @Plan.Items[I];
+    if Item^.IgnoreOnWrite then
+      Continue;
 
     FieldName := ResolveFieldName(Item);
     FieldValue := Item^.Field.GetValue(AValue.GetReferenceToRawData);
@@ -2500,7 +2583,7 @@ var
 begin
   for Attribute in AField.GetAttributes do
   begin
-    if Attribute is JsonIgnoreAttribute then
+    if (Attribute is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attribute).IgnoresWrite then
       Exit(True);
   end;
 
