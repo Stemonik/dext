@@ -158,6 +158,27 @@ type
   end;
 ```
 
+### O Atributo `[JsonIgnore]`
+`[JsonIgnore]` deixa um membro fora do JSON nos dois sentidos: ele não é escrito e não é lido. A leitura importa tanto quanto a escrita: uma classe ou um record preenchido a partir do corpo de uma requisição nunca recebe do cliente um membro ignorado.
+
+Com um `TJsonIgnoreMode` o membro é ignorado em um sentido só:
+
+```pascal
+type
+  TUser = class
+  public
+    property Name: string read FName write FName;
+    [JsonIgnore]                           // nem escrito nem lido
+    property Internal: string read FInternal write FInternal;
+    [JsonIgnore(TJsonIgnoreMode.OnWrite)]  // lido, nunca escrito: entra e nunca volta
+    property Password: string read FPassword write FPassword;
+    [JsonIgnore(TJsonIgnoreMode.OnRead)]   // escrito, nunca lido: quem decide é o servidor
+    property CreatedAt: TDateTime read FCreatedAt write FCreatedAt;
+  end;
+```
+
+O mesmo vale para os campos de records. `[JsonPublishedOnly]` em uma classe também vale nos dois sentidos: só as propriedades published são escritas e lidas.
+
 > [!TIP]
 > Use o **Dext DOM** para o desenvolvimento diário de suas APIs. Mude para o **Dext UTF-8** apenas quando o consumo de memória se tornar um gargalo ou quando estiver processando fluxos massivos de dados.
 

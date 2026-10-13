@@ -91,6 +91,9 @@ type
 
 implementation
 
+uses
+  Dext.Json; // JsonIgnoreAttribute
+
 { TUtf8JsonSerializerCache }
 
 class constructor TUtf8JsonSerializerCache.Create;
@@ -106,6 +109,8 @@ var
   Field: TRttiField;
   FldInfo: TJsonFieldInfo;
   Fields: TVector<TJsonFieldInfo>;
+  Attr: TCustomAttribute;
+  IgnoreRead: Boolean;
 begin
   if TUtf8JsonSerializerCache.Cache.TryGetValue(AType, Result) then
     Exit;
@@ -115,6 +120,15 @@ begin
 
   for Field in RType.GetFields do
   begin
+    // This is a reader: a field ignored on read is not in the list, so its
+    // name in the JSON is skipped like an unknown one.
+    IgnoreRead := False;
+    for Attr in Field.GetAttributes do
+      if (Attr is JsonIgnoreAttribute) and JsonIgnoreAttribute(Attr).IgnoresRead then
+        IgnoreRead := True;
+    if IgnoreRead then
+      Continue;
+
     FldInfo.NameBytes := TEncoding.UTF8.GetBytes(Field.Name);
     FldInfo.Offset := Field.Offset;
     if Field.FieldType <> nil then

@@ -377,7 +377,7 @@ Expected changes:
 - Object serialization reads primitive fields by offset where safe.
 - Object population writes primitive fields by offset where safe.
 - Generated JSON codecs can share the same static plan as protobuf but target JSON writers/readers.
-- `JsonNameAttribute`, case style, `JsonIgnoreAttribute`, and `NotMappedAttribute` remain JSON-specific decorations over the shared field model.
+- `JsonNameAttribute`, case style and `JsonIgnoreAttribute` remain JSON-specific decorations over the shared field model (`NotMappedAttribute` is about the database only and does not affect the JSON).
 
 ### 8.2 ORM Hydration
 

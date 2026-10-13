@@ -83,7 +83,7 @@ See the **[Delphi Compatibility Matrix](Delphi_Compatibility_Matrix.md)** for fe
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` with strong typing (6 node types: Null, String, Number, Boolean, Object, Array).
 - **TJsonBuilder** — Fluent builder for programmatic JSON construction without strings.
-- **Attributes** — `[JsonName]` (rename field), `[JsonIgnore]` (exclude field), `[JsonCaseStyle]` (class-level override).
+- **Attributes** — `[JsonName]` (rename field), `[JsonIgnore]` (exclude field when writing and reading; `TJsonIgnoreMode.OnWrite`/`OnRead` for one direction only), `[JsonPublishedOnly]` (only published properties, both directions), `[JsonCaseStyle]` (class-level override).
 - **Architectural Profiles**:
   - **Dext DOM (IDextJsonNode)** — Optimized for 99% of use cases (REST APIs, Configs). High-speed random access and object manipulation via in-memory tree (DataObjects engine).
   - **Dext UTF-8 (Low-Level Streaming)** — Surgical tool for Big Data. Zero-allocation sequential processing of massive volumes (GBs) with constant memory footprint.
