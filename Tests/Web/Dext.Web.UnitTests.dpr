@@ -20,6 +20,7 @@ uses
   Dext.Web.Json.Tests in 'Dext.Web.Json.Tests.pas',
   Dext.Web.Binding.Tests in 'Dext.Web.Binding.Tests.pas',
   Dext.Web.RecordBinding.Tests in 'Dext.Web.RecordBinding.Tests.pas',
+  Dext.Web.Routing.Versioning.Tests in 'Dext.Web.Routing.Versioning.Tests.pas',
   Dext.Web.JsonIgnoreBinding.Tests in 'Dext.Web.JsonIgnoreBinding.Tests.pas',
   Dext.Web.Features.Tests in 'Dext.Web.Features.Tests.pas',
   Dext.Web.DataApi.Utils.Tests in 'Dext.Web.DataApi.Utils.Tests.pas',
@@ -63,6 +64,7 @@ begin
       .RegisterFixtures([
         TWebBindingTests,
         TRecordBindingTests,
+        TApiVersionRoutingTests,
         TJsonIgnoreBindingTests,
         TEntityIdResolverTests,
         TJsonNullableTests,

@@ -216,6 +216,9 @@ type
 
 implementation
 
+uses
+  Dext.Json.Utf8; // EscapeJsonString
+
 function NormalizeExactRoutePath(const APath: string): string;
 var
   EndPos: Integer;
@@ -286,16 +289,19 @@ begin
   Result := H;
 end;
 
-function IsVersionMatchHelper(
+/// <summary>
+///   True when a route declares the requested version. An unversioned route
+///   (no versions) does not: it is the fallback, tried after the routes that
+///   declare the version, so the exact version wins whatever the order in
+///   which the routes were registered.
+/// </summary>
+function DeclaresVersion(
   const RequestedVersion: string;
   const SupportedVersions: TArray<string>
 ): Boolean;
 var
   V: string;
 begin
-  if Length(SupportedVersions) = 0 then
-    Exit(True);
-
   if RequestedVersion = '' then
     Exit(False);
 
@@ -304,6 +310,74 @@ begin
       Exit(True);
 
   Result := False;
+end;
+
+/// <summary>
+///   The routes of ANode for AMethod and the versions they declare, joined.
+///   False when the node has no route for AMethod.
+/// </summary>
+function VersionsOfMethod(Node: PDextCompiledRouteNode; const AMethod: string;
+  out AVersions: string): Boolean;
+var
+  i: Integer;
+  V: string;
+begin
+  Result := False;
+  AVersions := '';
+  for i := 0 to High(Node^.Leaves) do
+  begin
+    if not SameText(Node^.Leaves[i].Method, AMethod) then
+      Continue;
+    Result := True;
+    for V in Node^.Leaves[i].Metadata.ApiVersions do
+    begin
+      if AVersions = '' then
+        AVersions := V
+      else if not (', ' + AVersions + ', ').Contains(', ' + V + ', ') then
+        AVersions := AVersions + ', ' + V;
+    end;
+  end;
+end;
+
+/// <summary>
+///   400 with a problem document (RFC 9457) when the path has routes for the
+///   method, all versioned, and none for the requested version (#244):
+///   UnsupportedApiVersion, or ApiVersionUnspecified when no version was sent.
+/// </summary>
+function CreateApiVersionProblemHandler(const ARequestedVersion,
+  ASupportedVersions: string): TRequestDelegate;
+var
+  Body: string;
+  Code: string;
+  Detail: string;
+  Title: string;
+  TypeUri: string;
+begin
+  if ARequestedVersion = '' then
+  begin
+    Code := 'ApiVersionUnspecified';
+    Title := 'API version unspecified';
+    TypeUri := 'https://dext.dev/errors/api-version-unspecified';
+    Detail := 'An API version is required, but was not specified. ' +
+      'Supported versions: ' + ASupportedVersions + '.';
+  end
+  else
+  begin
+    Code := 'UnsupportedApiVersion';
+    Title := 'Unsupported API version';
+    TypeUri := 'https://dext.dev/errors/unsupported-api-version';
+    Detail := 'The API version ''' + ARequestedVersion +
+      ''' is not supported. Supported versions: ' + ASupportedVersions + '.';
+  end;
+  Body := '{"type":"' + TypeUri + '","title":"' + Title +
+    '","status":400,"detail":"' + EscapeJsonString(Detail) +
+    '","code":"' + Code + '"}';
+  Result := procedure(Context: IHttpContext)
+    begin
+      Context.Response.StatusCode := 400;
+      Context.Response.SetContentType('application/problem+json');
+      Context.Response.Write(Body);
+    end;
 end;
 
 function CreateOptionsHandler(const AAllowMethods,
@@ -496,12 +570,14 @@ begin
   begin
     if Length(Node^.Leaves) > 0 then
     begin
+      // First a route that declares the requested version, then an
+      // unversioned one: the exact version wins whatever the order.
       for i := 0 to High(Node^.Leaves) do
       begin
         if (Node^.Leaves[i].MethodMask = MethodMask) and
            (Node^.Leaves[i].MethodHash = MethodHash) and
            SameText(Node^.Leaves[i].Method, AMethod) and
-           IsVersionMatchHelper(AVersion, Node^.Leaves[i].Metadata.ApiVersions) then
+           DeclaresVersion(AVersion, Node^.Leaves[i].Metadata.ApiVersions) then
         begin
           ALeaf := Node^.Leaves[i];
           Exit(True);
@@ -513,7 +589,6 @@ begin
         if (Node^.Leaves[i].MethodMask = MethodMask) and
            (Node^.Leaves[i].MethodHash = MethodHash) and
            SameText(Node^.Leaves[i].Method, AMethod) and
-           (AVersion = '') and
            (Length(Node^.Leaves[i].Metadata.ApiVersions) = 0) then
         begin
           ALeaf := Node^.Leaves[i];
@@ -821,6 +896,8 @@ var
   MethodRoutes: IDictionary<string, TRouteLeaf>;
   Found: Boolean;
   Segment: string;
+  ExactKey: string;
+  Existing: TRouteLeaf;
 begin
   Path := ARoute.Path;
   if (Length(Path) > 1) and (Path[Length(Path)] = '/') then
@@ -868,7 +945,17 @@ begin
       MethodRoutes := TCollections.CreateDictionary<string, TRouteLeaf>;
       FExactRoutes.Add(ARoute.Method, MethodRoutes);
     end;
-    MethodRoutes.AddOrSetValue(NormalizeExactRoutePath(ARoute.Path), Leaf);
+    ExactKey := NormalizeExactRoutePath(ARoute.Path);
+    // Versions of one method and path: the dictionary keeps no leaf (nil)
+    // and the tree chooses by version. Without versions, the last route
+    // registered, as before.
+    if MethodRoutes.TryGetValue(ExactKey, Existing) and
+       ((Existing = nil) or
+        (Length(Existing.Metadata.ApiVersions) > 0) or
+        (Length(Leaf.Metadata.ApiVersions) > 0)) then
+      MethodRoutes.AddOrSetValue(ExactKey, nil)
+    else
+      MethodRoutes.AddOrSetValue(ExactKey, Leaf);
   end;
 end;
 
@@ -920,10 +1007,12 @@ var
 begin
   if AStartPos > AEndPos then
   begin
+    // First a route that declares the requested version, then an
+    // unversioned one (the same rule as MatchCompiledNodePath).
     for i := 0 to Node.Leaves.Count - 1 do
     begin
       if (Node.Leaves[i].Method = AMethod) and
-         IsVersionMatch(AVersion, Node.Leaves[i].Metadata.ApiVersions) then
+         DeclaresVersion(AVersion, Node.Leaves[i].Metadata.ApiVersions) then
       begin
         ALeaf := Node.Leaves[i];
         Exit(True);
@@ -933,7 +1022,6 @@ begin
     for i := 0 to Node.Leaves.Count - 1 do
     begin
       if (Node.Leaves[i].Method = AMethod) and
-         (AVersion = '') and
          (Length(Node.Leaves[i].Metadata.ApiVersions) = 0) then
       begin
         ALeaf := Node.Leaves[i];
@@ -1014,6 +1102,7 @@ var
   HasQuery: Boolean;
   CompiledLeaf: TDextCompiledRouteLeaf;
   PathNode: PDextCompiledRouteNode;
+  SupportedVersions: string;
 begin
   FillChar(ARouteParams, SizeOf(ARouteParams), 0);
   Result := False;
@@ -1032,6 +1121,7 @@ begin
     ExactPath := Copy(ExactPath, 1, Length(ExactPath) - 1);
   if FExactRoutes.TryGetValue(Method, MethodRoutes) and
      MethodRoutes.TryGetValue(ExactPath, Leaf) and
+     (Leaf <> nil) and
      IsVersionMatch(RequestVersion, Leaf.Metadata.ApiVersions) then
   begin
     AHandler := Leaf.Handler;
@@ -1066,6 +1156,19 @@ begin
     AMetadata := CompiledLeaf.Metadata;
     Result := True;
     Exit;
+  end;
+
+  // The path has routes for this method, but none for the requested version
+  // (an unversioned one would have matched): 400, not 405.
+  if FHasVersionedRoutes and (PathNode <> nil) and
+     VersionsOfMethod(PathNode, Method, SupportedVersions) then
+  begin
+    AHandler := CreateApiVersionProblemHandler(RequestVersion,
+      SupportedVersions);
+    AMetadata := PathNode^.OptionsMetadata;
+    AMetadata.Method := Method;
+    AMetadata.Path := Path;
+    Exit(True);
   end;
 
   if (PathNode <> nil) and Assigned(PathNode^.MethodNotAllowedHandler) then
