@@ -239,6 +239,37 @@ Apenas `.Where(expressão)` e `.OrderBy(prop)` se beneficiam de Smart Properties
 - `EndsWith('texto')`
 - `Like('%texto%')`
 
+`Contains`, `StartsWith` e `EndsWith` comparam o valor literalmente: o Dext escapa `%`, `_` e o caractere de escape, e envia o padrão como **parâmetro**. `Like` usa o padrão como você o escreve.
+
+### Busca por prefixo e índices
+
+`EndsWith` e `Contains` começam com um curinga, então nenhum banco pode respondê-los a partir de um índice B-tree. `StartsWith` pode, mas se usa o índice depende do banco, não do Dext. Medido em um milhão de linhas com parâmetros no servidor no Firebird 5, no PostgreSQL 14 e no MariaDB, e pelo plano da query no SQLite 3.50:
+
+| Banco | SQL gerado | Usa um índice comum? | O que é preciso |
+|---|---|---|---|
+| Firebird | `col STARTING WITH :p` | Sim | Nada |
+| MariaDB / MySQL | `col LIKE :p ESCAPE '!'` | Sim (range scan) | Nada |
+| PostgreSQL | `col LIKE :p ESCAPE '!'` | **Não**, a menos que a collation do banco seja `C` | Um índice para prefixos (abaixo) |
+| SQLite | `col LIKE :p ESCAPE '!'` | Só se o índice for `COLLATE NOCASE` | Um índice `NOCASE`, ou `PRAGMA case_sensitive_like = ON` com um índice comum |
+
+**PostgreSQL.** Com uma collation linguística (`pt_BR.UTF-8`, `Italian_Italy.1252`, ...) um índice B-tree comum nunca é usado pelo `LIKE`, nem com o padrão escrito na query: em 1.000.000 de linhas é uma leitura sequencial de cerca de 140 ms em vez de cerca de 1 ms. Adicione um segundo índice que sirva para prefixos, ao lado do comum. Mantenha o comum: o índice de prefixo não serve para `ORDER BY`, nem para comparações na collation do banco.
+
+```sql
+CREATE INDEX ix_customers_name_prefix ON customers (name COLLATE "C");
+-- ou
+CREATE INDEX ix_customers_name_prefix ON customers (name varchar_pattern_ops);
+```
+
+`CreateIndex` em uma migration coloca cada nome de coluna entre aspas, então escreva este com `Sql`:
+
+```pascal
+Builder.Sql('CREATE INDEX ix_customers_name_prefix ON customers (name COLLATE "C")');
+```
+
+O PostgreSQL o usa com planos custom, que é o que ele escolhe para um prepared statement reutilizado no padrão `plan_cache_mode = auto`. Com `force_generic_plan` nenhum `LIKE` usa índice.
+
+**Não troque `StartsWith` por um intervalo** (`col >= :a AND col < :b`). Ele usa o índice comum, mas retorna linhas erradas: com uma collation linguística no PostgreSQL (`'ab'` encontrou 11 linhas em vez de 9, `'Ab'` 9 em vez de 1), e no MariaDB com espaços no final (collations PAD SPACE). No PostgreSQL 14, `starts_with(col, $1)` e `col ^@ $1` também não usam um B-tree.
+
 ### Lógica Booleana
 ```pascal
 var u := TUser.Props;
