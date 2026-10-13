@@ -15,6 +15,7 @@ uses
   Dext.DI.Interfaces,
   Dext.Dashboard.TestScanner,
   Dext.Dashboard.TestRunner,
+  Dext.Dashboard.Security,
 {$IFDEF MSWINDOWS}
   Winapi.Windows,
 {$ENDIF}
@@ -146,6 +147,11 @@ end;
 
 class procedure TDashboardRoutes.Configure(App: IApplicationBuilder);
 begin
+  // First: Host, JSON body and token checks (Dext.Dashboard.Security). The
+  // API can read and list files and start executables, so only the dashboard
+  // page may call it, not another page open in the browser.
+  UseDashboardSecurity(App);
+
   // Map SignalR/WebSocket Hub
   THubExtensions.MapHub(App, '/hubs/dashboard', TDashboardHub);
 
@@ -183,6 +189,9 @@ begin
       if ResName <> '' then
       begin
         Ctx.Response.SetContentType(CT);
+        // The page gets the token that its API calls carry back.
+        if ResName = 'MAIN_HTML' then
+          SetDashboardCookie(Ctx.Response);
         RS := TResourceStream.Create(HInstance, ResName, RT_RCDATA);
         try
           Ctx.Response.SetContentLength(RS.Size);
@@ -216,9 +225,12 @@ begin
          ReportPath := TPath.GetFullPath('TestOutput\report');
          if TDirectory.Exists(ReportPath) then
          begin
-             FilePath := TPath.Combine(ReportPath, Path.Substring(9)); 
-             
-             if FileExists(FilePath) then
+             // Resolved and kept inside the report folder: '..' in the URL
+             // must not reach other files.
+             FilePath := TPath.GetFullPath(TPath.Combine(ReportPath, Path.Substring(9)));
+
+             if FilePath.StartsWith(IncludeTrailingPathDelimiter(ReportPath), True) and
+                FileExists(FilePath) then
              begin
                  CP := TContentTypeProvider.Create;
                  try
