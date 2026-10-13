@@ -58,13 +58,35 @@ var
   Options: TServerEngineOptions;
 begin
   Options := TServerEngineOptions.Create;
-  Options.IoThreadCount := 4; // Número de threads de trabalho (padrão é o número de núcleos da CPU)
+  Options.IoThreadCount := 4; // Número de threads de trabalho (padrão é o número de núcleos da CPU; Http.Sys: 4 por processador lógico)
   Options.QueueLimit := 1000;  // Limite da fila de requisições pendentes
   
   // Aplicar as opções ao inicializar o builder
   // ...
 end;
 ```
+
+### Workers e receives do Http.Sys
+
+Por padrão o engine Http.Sys inicia **quatro threads de trabalho por processador lógico** e mantém **um receive por processador lógico** postado no kernel. Os handlers normalmente esperam bancos de dados e chamadas remotas: os workers extras atendem requisições enquanto os outros esperam, e só rodam nesse momento, enquanto mais receives postados só congestionariam a completion port.
+
+Cada padrão pode ser alterado na inicialização:
+
+```pascal
+App.UseNativeServer(TServerEngineOptions.Default
+  .WithIoThreads(2 * TThread.ProcessorCount)  // workers
+  .WithOutstandingReceives(16));              // receives no total
+```
+
+Como os receives são decididos, em ordem:
+
+| opções | receives |
+|---|---|
+| `OutstandingReceives` definido | exatamente esse número |
+| `IoThreadCount` definido | workers x `OutstandingReceiveDepth` (padrão 2, de 1 a 8), como nas versões anteriores |
+| nenhum dos dois (o padrão) | um por processador lógico; `OutstandingReceiveDepth` não é usado |
+
+Assim uma aplicação que define `IoThreadCount` mantém os receives que tinha antes. Com os workers automáticos, a profundidade não tem efeito: para mudar os receives, use `WithOutstandingReceives`.
 
 ## Gerenciamento de Threads com epoll no Linux
 
@@ -103,7 +125,7 @@ Em máquinas Windows com alta contagem de núcleos (mais de 64 processadores ló
 
 O motor de servidor nativo do Dext resolve esse gargalo implementando o **Agendamento Ciente de Grupos de Processadores** (através da unit `Dext.Threading.ProcessorGroups`):
 1. **Descoberta de Topologia**: Detecta automaticamente todos os grupos ativos e o número total de núcleos do sistema através da função `GetSystemLogicalProcessorCount`.
-2. **Provisionamento Dinâmico**: Inicializa uma quantidade de threads de trabalho que condiz com o total real de núcleos da máquina (ex. 96 workers em um sistema com 2 grupos de 48 cores) em vez de se limitar ao grupo inicial.
+2. **Provisionamento Dinâmico**: Dimensiona as threads de trabalho sobre o total real de núcleos da máquina (ex. em um sistema com 2 grupos de 48 cores, 96 workers IOCP, ou 384 workers Http.Sys com quatro por processador lógico) em vez de se limitar ao grupo inicial.
 3. **Balanceamento de Afinidade**: Distribui as threads de trabalho de E/S uniformemente em modo Round-Robin entre os grupos e núcleos disponíveis por meio do `SetThreadGroupAffinity` antes do início do loop de processamento.
 
 Isso garante linearidade de escalabilidade e 100% de uso de CPU em todos os grupos de processadores e nós NUMA da máquina.

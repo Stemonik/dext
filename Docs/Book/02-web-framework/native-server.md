@@ -58,13 +58,35 @@ var
   Options: TServerEngineOptions;
 begin
   Options := TServerEngineOptions.Create;
-  Options.IoThreadCount := 4; // Number of worker threads (defaults to CPU count)
+  Options.IoThreadCount := 4; // Number of worker threads (defaults to CPU count; Http.Sys: 4 per logical processor)
   Options.QueueLimit := 1000;  // Backlog/queue limit for incoming requests
   
   // Apply options when initializing the builder
   // ...
 end;
 ```
+
+### Http.Sys workers and receives
+
+By default the Http.Sys engine starts **four worker threads per logical processor** and keeps **one receive per logical processor** posted to the kernel. Handlers usually wait on databases and remote calls: the extra workers take requests while the others wait, and only run then, while more posted receives would only crowd the completion port.
+
+Each default can be changed at startup:
+
+```pascal
+App.UseNativeServer(TServerEngineOptions.Default
+  .WithIoThreads(2 * TThread.ProcessorCount)  // workers
+  .WithOutstandingReceives(16));              // receives in total
+```
+
+How the receives are decided, in order:
+
+| options | receives |
+|---|---|
+| `OutstandingReceives` set | exactly that many |
+| `IoThreadCount` set | workers x `OutstandingReceiveDepth` (default 2, from 1 to 8), as in earlier versions |
+| neither (the default) | one per logical processor; `OutstandingReceiveDepth` is not used |
+
+So an application that sets `IoThreadCount` keeps the receives it had before. With the workers left automatic, the depth has no effect: to change the receives, use `WithOutstandingReceives`.
 
 ## Linux epoll Thread Management
 
@@ -103,7 +125,7 @@ On high-core Windows machines (more than 64 logical processors), the OS partitio
 
 The Dext Native Server Engine solves this bottleneck by implementing **Processor-Group-Aware Scheduling** (using the `Dext.Threading.ProcessorGroups` unit):
 1. **Topology Discovery**: Auto-detects all active processor groups and system-wide logical processors via the `GetSystemLogicalProcessorCount` helper.
-2. **Dynamic Thread Provisioning**: Spawns worker threads matching the total system-wide cores (e.g. 96 workers on a 2x48-core system) instead of being restricted to the starting group.
+2. **Dynamic Thread Provisioning**: Sizes the worker threads on the total system-wide cores (e.g. on a 2x48-core system, 96 IOCP workers, or 384 Http.Sys workers at four per logical processor) instead of being restricted to the starting group.
 3. **Thread Affinity Balancing**: Dynamically assigns each I/O worker thread to a specific processor group and affinity mask in a round-robin manner via `SetThreadGroupAffinity` before starting its event/request loop.
 
 This achieves linear scalability and 100% CPU utilization across all processor groups and NUMA nodes.

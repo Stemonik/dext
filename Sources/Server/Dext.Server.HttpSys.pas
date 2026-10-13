@@ -464,6 +464,21 @@ type
     class function Factory(Port: Integer; Pipeline: TRequestDelegate; Services: IServiceProvider): IWebHost; static;
     property BufferPool: TDextHttpSysBufferPool read FBufferPool;
   end;
+
+/// <summary>
+///   The worker threads the engine starts: IoThreadCount, or four per logical
+///   processor when it is 0.
+/// </summary>
+function HttpSysWorkerCount(const AOptions: TServerEngineOptions): Integer;
+
+/// <summary>
+///   The receives the engine keeps posted for AWorkers workers:
+///   OutstandingReceives when set; otherwise AWorkers x OutstandingReceiveDepth
+///   (1..8) when IoThreadCount is set, as before; otherwise (the default) one
+///   per logical processor, and OutstandingReceiveDepth is not used.
+/// </summary>
+function HttpSysReceiveCount(const AOptions: TServerEngineOptions;
+  AWorkers: Integer): Integer;
 {$ENDIF}
 
 implementation
@@ -475,6 +490,41 @@ uses
   Dext.WebSocket.Protocol,
   Dext.Core.Span,
   Dext.Utils;
+
+const
+  // Handlers wait on databases and remote calls: the extra workers take
+  // requests while the others wait, and only run then.
+  HttpSysWorkersPerProcessor = 4;
+
+function HttpSysWorkerCount(const AOptions: TServerEngineOptions): Integer;
+begin
+  Result := AOptions.IoThreadCount;
+  if Result <= 0 then
+    Result := HttpSysWorkersPerProcessor * GetSystemLogicalProcessorCount;
+end;
+
+// The depth as Start always clamped it.
+function ClampedReceiveDepth(const AOptions: TServerEngineOptions): Integer;
+begin
+  Result := AOptions.OutstandingReceiveDepth;
+  if Result < 1 then
+    Result := 2
+  else if Result > 8 then
+    Result := 8;
+end;
+
+function HttpSysReceiveCount(const AOptions: TServerEngineOptions;
+  AWorkers: Integer): Integer;
+begin
+  Result := AOptions.OutstandingReceives;
+  if Result > 0 then
+    Exit;
+  if AOptions.IoThreadCount > 0 then
+    Exit(AWorkers * ClampedReceiveDepth(AOptions));
+  // The default: one receive per logical processor, however many workers.
+  // More posted receives only crowd the completion port.
+  Result := GetSystemLogicalProcessorCount;
+end;
 
 var
   KnownRequestHeadersMapGlobal: TDictionary<string, Integer>;
@@ -3380,9 +3430,7 @@ begin
   FRunning := True;
 
   // Start Worker Threads
-  ThreadCount := FOptions.IoThreadCount;
-  if ThreadCount <= 0 then
-    ThreadCount := GetSystemLogicalProcessorCount;
+  ThreadCount := HttpSysWorkerCount(FOptions);
 
   for i := 0 to ThreadCount - 1 do
   begin
@@ -3392,13 +3440,7 @@ begin
     Worker.Start;
   end;
 
-  if FOptions.OutstandingReceiveDepth < 1 then
-    FOptions.OutstandingReceiveDepth := 2
-  else if FOptions.OutstandingReceiveDepth > 8 then
-    FOptions.OutstandingReceiveDepth := 8;
-  Receives := FOptions.OutstandingReceives;
-  if Receives <= 0 then
-    Receives := ThreadCount * FOptions.OutstandingReceiveDepth;
+  Receives := HttpSysReceiveCount(FOptions, ThreadCount);
   for i := 0 to Receives - 1 do
     PostReceiveRequest(AcquireContext);
 end;
