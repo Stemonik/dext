@@ -454,8 +454,8 @@ begin
   Should(Match(Matcher, Ctx, Handler)).BeTrue;
   Handler(Ctx);
   Should(GCalled).Be('one').Because('the X-Version header');
-  // A version that no route serves (3.0) still finds a route, here and on
-  // main alike: not touched by this change.
+  // A version that no route serves (3.0) answers 400 with a problem
+  // document: Dext.Web.Routing.Versioning.Tests (#244).
 end;
 
 end.
