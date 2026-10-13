@@ -63,7 +63,7 @@ type
 | `[Column]` | Mapeia usando Naming Strategy |
 | `[PK]` | Chave Primária |
 | `[AutoInc]` | Auto-incremento |
-| `[NotMapped]` | Exclui do mapeamento E do JSON |
+| `[NotMapped]` | Exclui do mapeamento (só o banco: some `[JsonIgnore]` para tirá-lo também do JSON) |
 | `[Version]` | Controle de concorrência otimista |
 | `[SoftDelete('deleted', 1, 0)]` | Exclusão lógica |
 | `[CreatedAt]` | Timestamp automático na inserção |

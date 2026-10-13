@@ -64,7 +64,7 @@ type
 | `[Column]` | Map using Naming Strategy |
 | `[PK]` | Primary key |
 | `[AutoInc]` | Auto-increment |
-| `[NotMapped]` | Exclude from mapping AND JSON |
+| `[NotMapped]` | Exclude from mapping (database only: add `[JsonIgnore]` to keep it out of the JSON too) |
 | `[Version]` | Optimistic concurrency versioning |
 | `[SoftDelete('deleted_col', 1, 0)]` | Logical deletion |
 | `[CreatedAt]` | Automatic timestamp on insertion |
