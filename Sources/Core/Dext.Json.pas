@@ -1078,10 +1078,29 @@ begin
 end;
 
 class function TJsonUtils.BytesToBase64(AData: Pointer; ASize: Integer): string;
+{$IF CompilerVersion < 35.0}
+var
+  I, N: Integer;
+{$ENDIF}
 begin
   if (AData = nil) or (ASize <= 0) then
     Exit('');
+{$IF CompilerVersion >= 35.0}
   Result := TNetEncoding.Base64String.EncodeBytesToString(AData, ASize);
+{$ELSE}
+  Result := TNetEncoding.Base64.EncodeBytesToString(AData, ASize);
+  // Single-pass in-place strip of CRLF without double reallocation
+  N := 0;
+  for I := 1 to Length(Result) do
+  begin
+    if (Result[I] <> #13) and (Result[I] <> #10) then
+    begin
+      Inc(N);
+      Result[N] := Result[I];
+    end;
+  end;
+  SetLength(Result, N);
+{$ENDIF}
 end;
 
 class function TJsonUtils.TryBase64ToBytes(const AText: string; out ABytes: TBytes): Boolean;
@@ -1139,7 +1158,11 @@ begin
   SetLength(Clean, N);
   while Length(Clean) mod 4 <> 0 do
     Clean := Clean + '=';
+{$IF CompilerVersion >= 35.0}
   ABytes := TNetEncoding.Base64String.DecodeStringToBytes(Clean);
+{$ELSE}
+  ABytes := TNetEncoding.Base64.DecodeStringToBytes(Clean);
+{$ENDIF}
   Result := True;
 end;
 

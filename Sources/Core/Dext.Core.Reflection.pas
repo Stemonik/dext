@@ -1290,7 +1290,6 @@ begin
             // Parse date string in a locale-independent way.
             // Supports ISO 8601: 'yyyy-mm-dd', 'yyyy-mm-ddThh:nn:ss', 'yyyy-mm-dd hh:nn:ss'
             DTVal := 0;
-            Parsed := False;
             S := DecodedValue.Trim;
             // The JSON forms first (Dext.Core.DateUtils): milliseconds, and a
             // 'Z' or an offset converted to local time
