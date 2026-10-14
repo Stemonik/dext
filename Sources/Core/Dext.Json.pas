@@ -191,6 +191,13 @@ type
     class function ToSnakeCase(const S: string): string; static;
     class function ApplyCaseStyle(const S: string; Style: TCaseStyle): string; static;
     /// <summary>
+    ///   The JSON name of a record field under SmartRecordMapping. A backing
+    ///   field, 'F' followed by an uppercase letter or '_' (FName, FValue,
+    ///   F_Note), loses the 'F'; any other name is left as it is (Flag,
+    ///   Format, Fee, Fattura). One rule for the record plan and GetFieldName.
+    /// </summary>
+    class function SmartRecordFieldName(const AName: string): string; static;
+    /// <summary>
     ///   True for a byte array: TBytes, TArray&lt;Byte&gt; or any other
     ///   dynamic array of Byte. In JSON it is binary data, written as Base64.
     /// </summary>
@@ -818,6 +825,15 @@ begin
   else
     Result := S;
   end;
+end;
+
+class function TJsonUtils.SmartRecordFieldName(const AName: string): string;
+begin
+  if (AName.Length > 1) and (AName.Chars[0] = 'F') and
+    CharInSet(AName.Chars[1], ['A'..'Z', '_']) then
+    Result := AName.Substring(1)
+  else
+    Result := AName;
 end;
 
 class function TJsonUtils.IsBytesType(AType: PTypeInfo): Boolean;
@@ -1642,8 +1658,8 @@ begin
         for SmartMap := False to True do
         begin
           NameStr := Item.OriginalFieldName;
-          if SmartMap and (NameStr.Length > 1) and (NameStr.Chars[0] = 'F') then
-            NameStr := NameStr.Substring(1);
+          if SmartMap then
+            NameStr := TJsonUtils.SmartRecordFieldName(NameStr);
           
           Item.ResolvedNames[Style, SmartMap] := TJsonUtils.ApplyCaseStyle(NameStr, Style);
         end;
@@ -2552,16 +2568,11 @@ begin
   Result := AField.Name;
 
   // Standard Dext Convention for Records:
-  // If field starts with 'F' and it is a record, we assume it is a storage field
-  // and strip the 'F' to match the intended property name in JSON.
+  // a backing field ('F' + uppercase letter or '_', as FName) loses the 'F' to
+  // match the intended property name in JSON; Flag or Fattura stay as they are.
   RttiType := AField.Parent;
   if (RttiType <> nil) and (RttiType.IsRecord) and (FSettings.FSmartRecordMapping) then
-  begin
-    if (Result.Length > 1) and (Result.Chars[0] = 'F') then
-    begin
-      Result := Result.Substring(1);
-    end;
-  end;
+    Result := TJsonUtils.SmartRecordFieldName(Result);
   
   Result := ApplyCaseStyle(Result);
 end;
