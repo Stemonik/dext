@@ -1049,6 +1049,8 @@ begin
     Exit;
   AValue := DatePart + TimePart;
   Result := True;
+end;
+
 class function TJsonUtils.SmartRecordFieldName(const AName: string): string;
 begin
   if (AName.Length > 1) and (AName.Chars[0] = 'F') and
