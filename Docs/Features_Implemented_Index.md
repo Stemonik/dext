@@ -82,6 +82,7 @@ See the **[Delphi Compatibility Matrix](Delphi_Compatibility_Matrix.md)** for fe
 - **Enum Serialization** (`TEnumStyle`) — `AsString` (RTTI enum name, the default) or `AsNumber` (ordinal), the same for classes, records, arrays and lists; reading accepts both. To keep numbers everywhere: `JsonDefaultSettings(TJsonSettings.Default.EnumAsNumber)`.
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` with strong typing (6 node types: Null, String, Number, Boolean, Object, Array).
+- **Dates in JSON** — with `TDateFormat.ISO8601` (the default) every serializer writes RFC 3339: a `TDateTime` as local time with its UTC offset `"2026-07-15T10:30:00.000+02:00"`, a `TDate` as `"2026-07-15"`, a `TTime` as `"10:30:00.000"`; reading converts `Z` and offsets to local time. `DateFormat` is used by `CustomFormat`. Functions in `Dext.Core.DateUtils`: `FormatJsonDateTime`, `FormatJsonDate`, `FormatJsonTime`, `TryParseJsonDateTime`, `TryParseJsonTime`.
 - **TJsonBuilder** — Fluent builder for programmatic JSON construction without strings.
 - **Attributes** — `[JsonName]` (rename field), `[JsonIgnore]` (exclude field when writing and reading; `TJsonIgnoreMode.OnWrite`/`OnRead` for one direction only), `[JsonPublishedOnly]` (only published properties, both directions), `[JsonCaseStyle]` (class-level override).
 - **Architectural Profiles**:

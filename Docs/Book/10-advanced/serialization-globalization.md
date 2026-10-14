@@ -59,6 +59,24 @@ In the `TEntityDataSet` and JSON mapping system, Dext automatically handles date
 - `TDate` properties get the truncated date part.
 - `TTime` properties get the fractional time part.
 
+### The format of dates in JSON
+
+Every serializer (`TDextJson`, the UTF-8 writer `TUtf8JsonWriter`, the record deserializer used by body binding, DbSet projections) writes and reads dates the same way, the ISO 8601 / RFC 3339 standard:
+
+| Type | JSON text |
+|---|---|
+| `TDateTime` | `"2026-07-15T10:30:00.000+02:00"`: the **local** time with its offset from UTC (`Z` when the offset is zero) |
+| `TDate` | `"2026-07-15"`: the calendar day |
+| `TTime` | `"10:30:00.000"`: the wall clock |
+
+The digits are the local wall clock, so a client that ignores the offset still shows 10:30; a client that honours it (JavaScript `new Date()`, Java, .NET) gets the right instant, also in the hour that repeats when daylight saving time ends.
+
+Reading accepts `yyyy-mm-dd`, `yyyy-mm-ddThh:nn[:ss[.fff]]` (also with a space) and a zone: `Z` or an offset (`+02:00`, `+0200`, `+02`) is **converted to the local time** of the server; a value without a zone is local time already. Other formats `TryParseCommonDate` knows are still accepted.
+
+The functions are public in `Dext.Core.DateUtils`: `FormatJsonDateTime`, `FormatJsonDate`, `FormatJsonTime`, `TryParseJsonDateTime`, `TryParseJsonTime`. The UTC offset is computed in whole minutes and kept per calendar day, so the system is asked about once per day rather than once per value.
+
+To keep the previous text (local time without a zone), set a custom format: `TJsonSettings.Default.CustomDateFormat('yyyy-mm-dd"T"hh":"nn":"ss.zzz')`.
+
 ## Memory Management (FastMM5)
 
 For high-performance applications, Dext includes native support for **FastMM5**. It is enabled by default in the `Dext.Core` package to ensure optimal performance with multi-threaded web requests and large JSON processing.

@@ -351,8 +351,10 @@ begin
      tkInteger, tkInt64: Result := IntToStr(AVal.AsInt64);
      tkFloat:
      begin
-       if AVal.TypeInfo = TypeInfo(TDateTime) then
-         Result := '"' + DateToISO8601(AVal.AsType<TDateTime>) + '"'
+       // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z' on
+       // the local time
+       if TJsonUtils.IsDateType(AVal.TypeInfo) then
+         Result := '"' + TJsonUtils.DateToJsonText(AVal.AsExtended, AVal.TypeInfo, ASettings) + '"'
        else
          Result := FloatToStr(AVal.AsExtended, TFormatSettings.Invariant);
      end;
@@ -1022,8 +1024,10 @@ begin
     tkInteger, tkInt64: WriteNumber(AValue.AsInt64);
     tkFloat: 
       begin
-        if AValue.TypeInfo = TypeInfo(TDateTime) then
-          WriteString(DateToISO8601(AValue.AsType<TDateTime>))
+        // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z'
+        // on the local time
+        if TJsonUtils.IsDateType(AValue.TypeInfo) then
+          WriteString(TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
         else
           WriteNumber(AValue.AsType<Double>);
       end;

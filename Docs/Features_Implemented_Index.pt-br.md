@@ -82,6 +82,7 @@ Veja a **[Matriz de Compatibilidade Delphi](Delphi_Compatibility_Matrix.md)** pa
 - **Enum Serialization** (`TEnumStyle`) — `AsString` (nome RTTI do enum, o padrão) ou `AsNumber` (ordinal), igual para classes, records, arrays e listas; a leitura aceita os dois. Para manter números em tudo: `JsonDefaultSettings(TJsonSettings.Default.EnumAsNumber)`.
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` com tipagem forte (6 node types: Null, String, Number, Boolean, Object, Array).
+- **Datas no JSON** — com `TDateFormat.ISO8601` (o padrão) todos os serializadores escrevem RFC 3339: um `TDateTime` como hora local com o deslocamento do UTC `"2026-07-15T10:30:00.000+02:00"`, um `TDate` como `"2026-07-15"`, um `TTime` como `"10:30:00.000"`; a leitura converte `Z` e deslocamentos para a hora local. `DateFormat` é usado por `CustomFormat`. Funções em `Dext.Core.DateUtils`: `FormatJsonDateTime`, `FormatJsonDate`, `FormatJsonTime`, `TryParseJsonDateTime`, `TryParseJsonTime`.
 - **TJsonBuilder** — Builder fluente para construção programática de JSON sem strings.
 - **Atributos** — `[JsonName]` (renomear campo), `[JsonIgnore]` (excluir campo na escrita e na leitura; `TJsonIgnoreMode.OnWrite`/`OnRead` para um sentido só), `[JsonPublishedOnly]` (só propriedades published, nos dois sentidos), `[JsonCaseStyle]` (override por classe).
 - **Perfis Arquiteturais**:

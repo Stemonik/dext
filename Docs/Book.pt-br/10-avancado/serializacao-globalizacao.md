@@ -59,6 +59,24 @@ No `TEntityDataSet` e no sistema de mapeamento JSON, o Dext lida automaticamente
 - Propriedades `TDate` recebam apenas a parte da data (Trunc).
 - Propriedades `TTime` recebam apenas a parte da hora (Frac).
 
+### O formato das datas no JSON
+
+Todos os serializadores (`TDextJson`, o writer UTF-8 `TUtf8JsonWriter`, o deserializador de records usado pelo binding do corpo, as projeções do DbSet) escrevem e leem datas do mesmo jeito, o padrão ISO 8601 / RFC 3339:
+
+| Tipo | Texto JSON |
+|---|---|
+| `TDateTime` | `"2026-07-15T10:30:00.000+02:00"`: a hora **local** com o seu deslocamento do UTC (`Z` quando o deslocamento é zero) |
+| `TDate` | `"2026-07-15"`: o dia do calendário |
+| `TTime` | `"10:30:00.000"`: a hora do relógio |
+
+Os dígitos são a hora local do relógio, então um cliente que ignora o deslocamento ainda mostra 10:30; um cliente que o respeita (JavaScript `new Date()`, Java, .NET) obtém o instante certo, também na hora que se repete quando termina o horário de verão.
+
+A leitura aceita `yyyy-mm-dd`, `yyyy-mm-ddThh:nn[:ss[.fff]]` (também com espaço) e uma zona: `Z` ou um deslocamento (`+02:00`, `+0200`, `+02`) é **convertido para a hora local** do servidor; um valor sem zona já é hora local. Os outros formatos que `TryParseCommonDate` conhece continuam aceitos.
+
+As funções são públicas em `Dext.Core.DateUtils`: `FormatJsonDateTime`, `FormatJsonDate`, `FormatJsonTime`, `TryParseJsonDateTime`, `TryParseJsonTime`. O deslocamento do UTC é calculado em minutos inteiros e guardado por dia do calendário, então o sistema é consultado cerca de uma vez por dia, não uma vez por valor.
+
+Para manter o texto anterior (hora local sem zona), use um formato próprio: `TJsonSettings.Default.CustomDateFormat('yyyy-mm-dd"T"hh":"nn":"ss.zzz')`.
+
 ## Gerenciamento de Memória (FastMM5)
 
 Para aplicações de alta performance, o Dext inclui suporte nativo ao **FastMM5**. Ele vem habilitado por padrão no pacote `Dext.Core` para garantir performance ideal em requisições web multi-thread e processamento de grandes volumes de JSON.
