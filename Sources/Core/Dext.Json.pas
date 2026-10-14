@@ -168,6 +168,26 @@ type
     class function ToPascalCase(const S: string): string; static;
     class function ToSnakeCase(const S: string): string; static;
     class function ApplyCaseStyle(const S: string; Style: TCaseStyle): string; static;
+    /// <summary>
+    ///   True for a byte array: TBytes, TArray&lt;Byte&gt; or any other
+    ///   dynamic array of Byte. In JSON it is binary data, written as Base64.
+    /// </summary>
+    class function IsBytesType(AType: PTypeInfo): Boolean; static;
+    /// <summary>
+    ///   Base64 on one line, with padding (RFC 4648, TNetEncoding.Base64String):
+    ///   not the MIME form, which breaks the line every 76 characters.
+    /// </summary>
+    class function BytesToBase64(const ABytes: TBytes): string; overload; static;
+    class function BytesToBase64(AData: Pointer; ASize: Integer): string; overload; static;
+    /// <summary>
+    ///   Base64 (RFC 4648) to bytes. Also accepted: without the final '=',
+    ///   with line breaks and spaces (the MIME form), and the URL alphabet
+    ///   ('-' and '_'). False for any other character, the two alphabets
+    ///   mixed, a '=' that is not at the end, or an impossible length, so
+    ///   that a text that is not Base64 is not turned into random bytes.
+    ///   An empty text is an empty array.
+    /// </summary>
+    class function TryBase64ToBytes(const AText: string; out ABytes: TBytes): Boolean; static;
   end;
 
   /// <summary>Deprecated alias for TJsonSettings.</summary>
@@ -308,6 +328,8 @@ type
     skClass,
     skList,
     skDynArray,
+    /// <summary>A byte array (TJsonUtils.IsBytesType): Base64.</summary>
+    skBytes,
     skInterface,
     skUnknown
   );
@@ -411,6 +433,7 @@ type
     function GetOrBuildRecordPlan(AType: PTypeInfo): PRecordPlan;
     function ResolveFieldName(Item: PRecordPlanItem): string;
     function SerializeObjectWithPlan(Obj: TObject; const Plan: TSerializationPlan): IDextJsonObject;
+    function TryReadBytesRoot(const AJson: string; AType: PTypeInfo; out AValue: TValue): Boolean;
   protected
     function GetFieldName(AField: TRttiField): string;
     function GetRecordName(ARttiType: TRttiType): string;
@@ -533,6 +556,7 @@ uses
   System.Classes,
   System.DateUtils,
   System.Generics.Collections,
+  System.NetEncoding,
   System.SyncObjs,
   System.Variants,
   Dext.Core.Reflection,
@@ -727,6 +751,145 @@ begin
   end;
 end;
 
+class function TJsonUtils.IsBytesType(AType: PTypeInfo): Boolean;
+var
+  Element: PPTypeInfo;
+begin
+  Result := False;
+  if (AType = nil) or (AType.Kind <> tkDynArray) then
+    Exit;
+  // The element itself (elType2 is not it for an array of arrays)
+  Element := AType.TypeData^.DynArrElType;
+  Result := (Element <> nil) and (Element^ = TypeInfo(Byte));
+end;
+
+class function TJsonUtils.BytesToBase64(const ABytes: TBytes): string;
+begin
+  Result := BytesToBase64(Pointer(ABytes), Length(ABytes));
+end;
+
+class function TJsonUtils.BytesToBase64(AData: Pointer; ASize: Integer): string;
+begin
+  if (AData = nil) or (ASize <= 0) then
+    Exit('');
+  Result := TNetEncoding.Base64String.EncodeBytesToString(AData, ASize);
+end;
+
+class function TJsonUtils.TryBase64ToBytes(const AText: string; out ABytes: TBytes): Boolean;
+var
+  Clean: string;
+  I, N, Pads: Integer;
+  C: Char;
+  Standard, Url: Boolean;
+begin
+  ABytes := nil;
+  Result := False;
+  SetLength(Clean, Length(AText));
+  N := 0;
+  Pads := 0;
+  Standard := False;
+  Url := False;
+  for I := 1 to Length(AText) do
+  begin
+    C := AText[I];
+    // Line breaks and spaces (the MIME form) are skipped
+    if C <= ' ' then
+      Continue;
+    if C = '=' then
+    begin
+      Inc(Pads);
+      Continue;
+    end;
+    // After a '=' only other '=' (and spaces) may follow
+    if Pads > 0 then
+      Exit;
+    case C of
+      'A'..'Z', 'a'..'z', '0'..'9':
+        ;
+      '+', '/':
+        Standard := True;
+      '-':
+        begin
+          Url := True;
+          C := '+';
+        end;
+      '_':
+        begin
+          Url := True;
+          C := '/';
+        end;
+    else
+      Exit;
+    end;
+    Inc(N);
+    Clean[N] := C;
+  end;
+  // A group of 4 characters carries 3 bytes: a last group of 1 is impossible
+  if (Standard and Url) or (Pads > 2) or (N mod 4 = 1) then
+    Exit;
+  SetLength(Clean, N);
+  while Length(Clean) mod 4 <> 0 do
+    Clean := Clean + '=';
+  ABytes := TNetEncoding.Base64String.DecodeStringToBytes(Clean);
+  Result := True;
+end;
+
+{ Byte arrays }
+
+function BytesValueToBase64(const AValue: TValue): string;
+var
+  P: Pointer;
+begin
+  P := PPointer(AValue.GetReferenceToRawData)^;
+  Result := TJsonUtils.BytesToBase64(P, DynArraySize(P));
+end;
+
+/// A byte array read from JSON: a Base64 string (TJsonUtils.TryBase64ToBytes)
+/// or an array of numbers from 0 to 255, as it was written before. null is
+/// no value (TValue.Empty). Anything else raises, naming the field.
+function BytesFromJsonNode(const ANode: IDextJsonNode; AType: PTypeInfo;
+  const AName: string): TValue;
+var
+  Bytes: TBytes;
+  Arr: IDextJsonArray;
+  Item: IDextJsonNode;
+  I: Integer;
+  V: Double;
+  Where: string;
+begin
+  Result := TValue.Empty;
+  if AName <> '' then
+    Where := 'Field "' + AName + '": '
+  else
+    Where := '';
+  case ANode.GetNodeType of
+    jntNull:
+      Exit;
+    jntString:
+      if not TJsonUtils.TryBase64ToBytes(ANode.AsString, Bytes) then
+        raise EDextJsonException.Create(Where + 'the text is not Base64');
+    jntArray:
+      begin
+        Arr := ANode as IDextJsonArray;
+        SetLength(Bytes, Arr.GetCount);
+        for I := 0 to Arr.GetCount - 1 do
+        begin
+          Item := Arr.GetNode(I);
+          if (Item = nil) or (Item.GetNodeType <> jntNumber) then
+            raise EDextJsonException.CreateFmt('%sitem %d is not a number from 0 to 255', [Where, I]);
+          V := Item.AsDouble;
+          if (V < 0) or (V > 255) or (Frac(V) <> 0) then
+            raise EDextJsonException.CreateFmt('%sitem %d is not a number from 0 to 255', [Where, I]);
+          Bytes[I] := Byte(Trunc(V));
+        end;
+      end;
+  else
+    raise EDextJsonException.Create(Where +
+      'binary data must be a Base64 string or an array of numbers from 0 to 255');
+  end;
+  TValue.Make(@Bytes, AType, Result);
+end;
+
 { JsonIgnoreAttribute }
 
 constructor JsonIgnoreAttribute.Create;
@@ -835,6 +998,9 @@ var
 begin
   Serializer := TDextSerializer.Create(ASettings);
   try
+    // A byte array as the root: a Base64 string (an array goes on below)
+    if Serializer.TryReadBytesRoot(AJson, AType, Result) then
+      Exit;
     JsonNode := TDextJson.Provider.Parse(AJson);
     if JsonNode.GetNodeType = jntObject then
     begin
@@ -1252,7 +1418,10 @@ begin
             Item.Kind := skInterface;
         end;
       tkDynArray:
-        Item.Kind := skDynArray;
+        if TJsonUtils.IsBytesType(LTypeInfo) then
+          Item.Kind := skBytes
+        else
+          Item.Kind := skDynArray;
     else
       Item.Kind := skUnknown;
     end;
@@ -1478,7 +1647,10 @@ begin
             Item.Kind := skInterface;
         end;
       tkDynArray:
-        Item.Kind := skDynArray;
+        if TJsonUtils.IsBytesType(LTypeInfo) then
+          Item.Kind := skBytes
+        else
+          Item.Kind := skDynArray;
     else
       Item.Kind := skUnknown;
     end;
@@ -1743,6 +1915,11 @@ begin
         Result.SetArray(Item^.JsonName, SerializeList(PropValue));
       skDynArray:
         Result.SetArray(Item^.JsonName, SerializeArray(PropValue));
+      skBytes:
+        if FSettings.FBytesAsBase64 then
+          Result.SetString(Item^.JsonName, BytesValueToBase64(PropValue))
+        else
+          Result.SetArray(Item^.JsonName, SerializeArray(PropValue));
       skInterface:
         Result.SetNull(Item^.JsonName);
     end;
@@ -1768,6 +1945,10 @@ var
   JsonNode: IDextJsonNode;
   Value: TValue;
 begin
+  // A byte array as the root: a Base64 string (an array goes on below)
+  if TryReadBytesRoot(AJson, TypeInfo(T), Value) then
+    Exit(Value.AsType<T>);
+
   JsonNode := TDextJson.Provider.Parse(AJson);
   try
     if JsonNode.GetNodeType = jntObject then
@@ -1789,6 +1970,26 @@ begin
   finally
     // Interface reference counting handles destruction
   end;
+end;
+
+function TDextSerializer.TryReadBytesRoot(const AJson: string; AType: PTypeInfo;
+  out AValue: TValue): Boolean;
+var
+  S: string;
+  Bytes: TBytes;
+begin
+  Result := False;
+  if not TJsonUtils.IsBytesType(AType) then
+    Exit;
+  S := Trim(AJson);
+  if (Length(S) < 2) or (S[1] <> '"') or (S[Length(S)] <> '"') then
+    Exit;
+  // Base64 has nothing to escape, but a writer may escape the '/' as '\/'
+  S := StringReplace(Copy(S, 2, Length(S) - 2), '\/', '/', [rfReplaceAll]);
+  if not TJsonUtils.TryBase64ToBytes(S, Bytes) then
+    raise EDextJsonException.Create('the text is not Base64');
+  TValue.Make(@Bytes, AType, AValue);
+  Result := True;
 end;
 
 function TDextSerializer.DeserializeObject(AJson: IDextJsonObject; AType: PTypeInfo; AInstance: TObject): TValue;
@@ -2035,6 +2236,19 @@ begin
         end;
         Handler := TReflection.GetHandler(AType, Prop.Name);
         Val := TValue.Empty;
+        // Binary data: a Base64 string, or an array of numbers from 0 to 255
+        if TJsonUtils.IsBytesType(Prop.PropertyType.Handle) then
+        begin
+          Val := BytesFromJsonNode(Node, Prop.PropertyType.Handle, Prop.Name);
+          if not Val.IsEmpty then
+          begin
+            if Handler <> nil then
+              Handler.SetValue(Instance, Val)
+            else
+              Prop.SetValue(Instance, Val);
+          end;
+          Continue;
+        end;
         case Node.GetNodeType of
           jntString:
             Val := TValue.From<string>(Node.AsString);
@@ -2183,6 +2397,14 @@ begin
       Continue;
 
     Val := TValue.Empty; // Reset for each field
+
+    // Binary data: a Base64 string, or an array of numbers from 0 to 255
+    if Item^.Kind = skBytes then
+    begin
+      TReflection.SetValue(Result.GetReferenceToRawData, Item^.Field,
+        BytesFromJsonNode(Node, Item^.FieldTypeInfo, FieldName));
+      Continue;
+    end;
 
     case Node.GetNodeType of
       jntString: Val := TValue.From<string>(Node.AsString);
@@ -2368,6 +2590,11 @@ function TDextSerializer.Serialize<T>(const AValue: T): string;
 var
   JsonNode: IDextJsonNode;
 begin
+  // A byte array as the root: a Base64 string
+  if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(TypeInfo(T)) then
+    Exit('"' + TJsonUtils.BytesToBase64(PPointer(@AValue)^,
+      DynArraySize(PPointer(@AValue)^)) + '"');
+
   // Check if root is array or list
   if IsArrayType(TypeInfo(T)) then
     JsonNode := SerializeArray(TValue.From<T>(AValue))
@@ -2386,6 +2613,10 @@ function TDextSerializer.Serialize(const AValue: TValue): string;
 var
   JsonNode: IDextJsonNode;
 begin
+  // A byte array as the root: a Base64 string
+  if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(AValue.TypeInfo) then
+    Exit('"' + BytesValueToBase64(AValue) + '"');
+
   // Check if root is array or list
   if IsArrayType(AValue.TypeInfo) then
     JsonNode := SerializeArray(AValue)
@@ -2559,6 +2790,12 @@ begin
 
       skDynArray:
         Result.SetArray(FieldName, SerializeArray(FieldValue));
+
+      skBytes:
+        if FSettings.FBytesAsBase64 then
+          Result.SetString(FieldName, BytesValueToBase64(FieldValue))
+        else
+          Result.SetArray(FieldName, SerializeArray(FieldValue));
 
       skClass, skInterface:
         Result.SetObject(FieldName, SerializeObject(FieldValue));
@@ -2813,6 +3050,10 @@ var
   P: PByte;
   ElSize: Integer;
 begin
+  // A byte array: only numbers from 0 to 255, nothing truncated
+  if TJsonUtils.IsBytesType(AType) then
+    Exit(BytesFromJsonNode(AJson, AType, ''));
+
   ElementType := GetArrayElementType(AType);
   DynArray := nil;
   Count := AJson.GetCount;
@@ -2863,7 +3104,10 @@ begin
           end;
         tkDynArray:
           begin
-            if (Node <> nil) and (Node.GetNodeType = jntArray) then
+            // A byte array element may also be a Base64 string
+            if (Node <> nil) and TJsonUtils.IsBytesType(ElementType) then
+              ElementValue := BytesFromJsonNode(Node, ElementType, Format('[%d]', [I]))
+            else if (Node <> nil) and (Node.GetNodeType = jntArray) then
                ElementValue := DeserializeArray(Node as IDextJsonArray, ElementType)
             else
                ElementValue := TValue.Empty;
@@ -3059,7 +3303,10 @@ begin
             end;
           tkDynArray:
             begin
-              if (Node <> nil) and (Node.GetNodeType = jntArray) then
+              // A byte array element may also be a Base64 string
+              if (Node <> nil) and TJsonUtils.IsBytesType(ElementType) then
+                ElementValue := BytesFromJsonNode(Node, ElementType, Format('[%d]', [I]))
+              else if (Node <> nil) and (Node.GetNodeType = jntArray) then
                 ElementValue := DeserializeArray(Node as IDextJsonArray, ElementType)
               else
                 ElementValue := TValue.Empty;
@@ -3280,7 +3527,10 @@ begin
             Result.Add(SerializeObject(ElementValue));
         end;
       tkDynArray:
-        Result.Add(SerializeArray(ElementValue));
+        if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+          Result.Add(BytesValueToBase64(ElementValue))
+        else
+          Result.Add(SerializeArray(ElementValue));
     else
       Result.AddNull;
     end;
@@ -3346,7 +3596,10 @@ begin
               Result.Add(SerializeObject(ElementValue));
           end;
         tkDynArray:
-          Result.Add(SerializeArray(ElementValue));
+          if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+            Result.Add(BytesValueToBase64(ElementValue))
+          else
+            Result.Add(SerializeArray(ElementValue));
         tkInteger, tkInt64:
           Result.Add(ElementValue.AsInt64);
         tkFloat:
@@ -3402,7 +3655,10 @@ begin
                 Result.Add(SerializeObject(ElementValue));
             end;
           tkDynArray:
-            Result.Add(SerializeArray(ElementValue));
+            if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+              Result.Add(BytesValueToBase64(ElementValue))
+            else
+              Result.Add(SerializeArray(ElementValue));
           tkInteger, tkInt64:
             Result.Add(ElementValue.AsInt64);
           tkFloat:

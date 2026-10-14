@@ -179,6 +179,25 @@ type
 
 The same applies to record fields. `[JsonPublishedOnly]` on a class works in both directions too: only published properties are written and read.
 
+### Binary Data (`TBytes`)
+JSON has no binary type, and the convention for binary data is a **Base64 string** (RFC 4648; `format: byte` in OpenAPI). A `TBytes`, or any other dynamic array of `Byte`, is written that way: on one line, with padding, in classes, records, arrays, lists, and as the root of the JSON.
+
+```pascal
+type
+  TDocument = class
+  public
+    property Name: string read FName write FName;
+    property Content: TBytes read FContent write FContent;
+  end;
+
+// {"Name":"a.png","Content":"iVBORw0KGgo="}
+Json := TDextJson.Serialize(Doc);
+```
+
+Reading accepts the forms other systems write: standard Base64, the URL alphabet (`-` and `_`), without the final `=`, with MIME line breaks; and an array of numbers from 0 to 255, so JSON written by earlier versions still reads. A text that is not Base64, a number outside 0..255, or any other value raises an exception that names the field: binary data is never guessed.
+
+To write the array of numbers instead (for a client that expects it): `TJsonSettings.Default.BytesAsBase64(False)`.
+
 > [!TIP]
 > Use **Dext DOM** for your daily API development. Switch to **Dext UTF-8** only when memory consumption becomes a bottleneck or when processing massive data streams.
 

@@ -1039,6 +1039,20 @@ begin
         else
           WriteString(GetEnumName(AValue.TypeInfo, AValue.AsOrdinal));
       end;
+    tkDynArray:
+      // A byte array: Base64. Any other array (and a byte array with
+      // BytesAsBase64 off) through the full serializer, as for records below:
+      // it was written as the text "(dynamic array [0..N] of T)".
+      if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(AValue.TypeInfo) then
+        WriteString(TJsonUtils.BytesToBase64(PPointer(AValue.GetReferenceToRawData)^,
+          DynArraySize(PPointer(AValue.GetReferenceToRawData)^)))
+      else
+      begin
+        CheckComma;
+        WriteRaw(TDextJson.Serialize(AValue, FSettings));
+        if FDepth > 0 then
+          FNeedComma[FDepth - 1] := True;
+      end;
     tkClass, tkInterface:
       begin
         CheckComma;
