@@ -216,6 +216,31 @@ Reading accepts the forms other systems write: standard Base64, the URL alphabet
 
 To write the array of numbers instead (for a client that expects it): `TJsonSettings.Default.BytesAsBase64(False)`.
 
+### Format Attributes
+Four attributes change how one member is written, on class properties and record fields alike, and the same member is read back in that form:
+
+| attribute | on | written as | read |
+|---|---|---|---|
+| `[JsonFormat('dd/mm/yyyy')]` | `TDateTime`, `TDate`, `TTime` | the format, with the invariant settings (`/` and `:` as written, whatever the locale) | the format; a standard date too |
+| `[JsonString]` | integers, floats, `Currency`, `Boolean` | a string: `"9007199254740993"`, `"12.5"`, `"true"` | a string or the normal value |
+| `[JsonNumber]` | `string` | a number; empty text is `null`, text that is not a number stays text | a number or a string |
+| `[JsonBoolean]` | integers | `true`/`false` (0 is `false`) | a Boolean or a number |
+
+```pascal
+type
+  TOrder = class
+  public
+    [JsonString]  // beyond 2^53 a JavaScript number loses digits
+    property Id: Int64 read FId write FId;
+    [JsonFormat('yyyymmdd')]
+    property Day: TDate read FDay write FDay;
+  end;
+
+// {"Id":"9007199254740993","Day":"20260715"}
+```
+
+`[JsonFormat]` reads back formats made of `yyyy yy mm m dd d hh h nn n ss s zzz z` and fixed text (`TJsonUtils.TryParseDateWithFormat`). A format that cannot be read back (month names, `am/pm`), two of these attributes on one member, or an attribute on a type it cannot change raise `EDextJsonException` when the class or record is first serialized: an attribute that does nothing is never silent.
+
 > [!TIP]
 > Use **Dext DOM** for your daily API development. Switch to **Dext UTF-8** only when memory consumption becomes a bottleneck or when processing massive data streams.
 
