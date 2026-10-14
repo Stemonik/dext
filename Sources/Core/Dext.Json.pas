@@ -396,7 +396,9 @@ type
   /// </summary>
   TDextSerializer = class
   private
-    class var FPlanCache: TObject;  // TObjectDictionary<PTypeInfo, TObject> wrapping TSerializationPlan
+    // One TObjectDictionary<PTypeInfo, TObject> wrapping TSerializationPlan
+    // per case style: the JSON names in a plan depend on it
+    class var FPlanCaches: array[TCaseStyle] of TObject;
     class var FPlanLock: TObject;   // TCriticalSection for thread-safe plan creation
     class var FRecordPlanCache: TObject; // TObjectDictionary<PTypeInfo, TObject> wrapping TRecordPlan
     class var FRecordPlanLock: TObject;  // TCriticalSection for thread-safe record plan creation
@@ -544,14 +546,24 @@ type
     Plan: PRecordPlan;
   end;
 
-  TClassCacheEntry = record
+  /// <summary>
+  ///   Wrapper object to store a TSerializationPlan inside TObjectDictionary.
+  ///   The JSON names of a plan depend on the case style, so a plan belongs
+  ///   to a class AND a case style: both are kept here, next to the plan.
+  /// </summary>
+  TSerializationPlanHolder = class
+  public
     TypeInfo: PTypeInfo;
-    Plan: PSerializationPlan;
+    CaseStyle: TCaseStyle;
+    Plan: TSerializationPlan;
   end;
 
 var
   GRecordPlanCache: array[0..15] of TRecordCacheEntry;
-  GClassPlanCache: array[0..15] of TClassCacheEntry;
+  // A slot is a single pointer, written in one store: a reader sees either
+  // the old holder or the new one, never the type of one with the plan of
+  // the other.
+  GClassPlanCache: array[0..15] of TSerializationPlanHolder;
   GRecordCacheIdx: Integer = 0;
   GClassCacheIdx: Integer = 0;
 
@@ -940,30 +952,28 @@ end;
 { TDextSerializer }
 
 type
-  /// <summary>
-  ///   Wrapper object to store a TSerializationPlan inside TObjectDictionary.
-  /// </summary>
-  TSerializationPlanHolder = class
-  public
-    Plan: TSerializationPlan;
-  end;
-
   TRecordPlanHolder = class
   public
     Plan: TRecordPlan;
   end;
 
 class constructor TDextSerializer.Create;
+var
+  Style: TCaseStyle;
 begin
-  FPlanCache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>.Create([doOwnsValues]);
+  for Style := Low(TCaseStyle) to High(TCaseStyle) do
+    FPlanCaches[Style] := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>.Create([doOwnsValues]);
   FPlanLock := TCriticalSection.Create;
   FRecordPlanCache := TObjectDictionary<PTypeInfo, TRecordPlanHolder>.Create([doOwnsValues]);
   FRecordPlanLock := TCriticalSection.Create;
 end;
 
 class destructor TDextSerializer.Destroy;
+var
+  Style: TCaseStyle;
 begin
-  FreeAndNil(FPlanCache);
+  for Style := Low(TCaseStyle) to High(TCaseStyle) do
+    FreeAndNil(FPlanCaches[Style]);
   FreeAndNil(FPlanLock);
   FreeAndNil(FRecordPlanCache);
   FreeAndNil(FRecordPlanLock);
@@ -992,15 +1002,21 @@ var
   BackingField: TRttiField;
   PublishedOnly: Boolean;
   Base: TRttiType;
+  Style: TCaseStyle;
+  Slot: TSerializationPlanHolder;
 begin
+  // The plan holds the JSON names, so it is looked up by class AND case style
+  Style := FSettings.CaseStyle;
+
   // Lock-free slot cache lookup
   for I := 0 to 15 do
   begin
-    if GClassPlanCache[I].TypeInfo = AType then
-      Exit(GClassPlanCache[I].Plan);
+    Slot := GClassPlanCache[I];
+    if (Slot <> nil) and (Slot.TypeInfo = AType) and (Slot.CaseStyle = Style) then
+      Exit(@Slot.Plan);
   end;
 
-  Cache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>(FPlanCache);
+  Cache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>(FPlanCaches[Style]);
   Lock := TCriticalSection(FPlanLock);
 
   // Fast path: plan already exists (lock-free read)
@@ -1009,12 +1025,11 @@ begin
     if Cache.TryGetValue(AType, Holder) then
     begin
       Result := @Holder.Plan;
-      
+
       // Update lock-free cache slot
       Idx := TInterlocked.Increment(GClassCacheIdx) and 15;
-      GClassPlanCache[Idx].TypeInfo := AType;
-      GClassPlanCache[Idx].Plan := Result;
-      
+      GClassPlanCache[Idx] := Holder;
+
       Exit;
     end;
   finally
@@ -1031,6 +1046,8 @@ begin
     TypeFields := nil;
 
   Holder := TSerializationPlanHolder.Create;
+  Holder.TypeInfo := AType;
+  Holder.CaseStyle := Style;
   SetLength(Holder.Plan.Items, Length(Props));
   ItemCount := 0;
 
@@ -1264,8 +1281,7 @@ begin
 
   Result := @Holder.Plan;
   Idx := TInterlocked.Increment(GClassCacheIdx) and 15;
-  GClassPlanCache[Idx].TypeInfo := AType;
-  GClassPlanCache[Idx].Plan := Result;
+  GClassPlanCache[Idx] := Holder;
 end;
 
 function TDextSerializer.ResolveFieldName(Item: PRecordPlanItem): string;
