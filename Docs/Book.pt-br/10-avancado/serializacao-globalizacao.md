@@ -179,6 +179,25 @@ type
 
 O mesmo vale para os campos de records. `[JsonPublishedOnly]` em uma classe também vale nos dois sentidos: só as propriedades published são escritas e lidas.
 
+### Dados Binários (`TBytes`)
+O JSON não tem um tipo binário, e a convenção para dados binários é uma **string Base64** (RFC 4648; `format: byte` no OpenAPI). Um `TBytes`, ou qualquer outro array dinâmico de `Byte`, é escrito assim: em uma linha, com padding, em classes, records, arrays, listas e na raiz do JSON.
+
+```pascal
+type
+  TDocument = class
+  public
+    property Name: string read FName write FName;
+    property Content: TBytes read FContent write FContent;
+  end;
+
+// {"Name":"a.png","Content":"iVBORw0KGgo="}
+Json := TDextJson.Serialize(Doc);
+```
+
+A leitura aceita as formas que outros sistemas escrevem: Base64 padrão, o alfabeto URL (`-` e `_`), sem o `=` final, com quebras de linha MIME; e um array de números de 0 a 255, para que o JSON escrito por versões anteriores continue sendo lido. Um texto que não é Base64, um número fora de 0..255 ou qualquer outro valor gera uma exceção com o nome do campo: dados binários nunca são adivinhados.
+
+Para escrever o array de números (para um cliente que o espera): `TJsonSettings.Default.BytesAsBase64(False)`.
+
 > [!TIP]
 > Use o **Dext DOM** para o desenvolvimento diário de suas APIs. Mude para o **Dext UTF-8** apenas quando o consumo de memória se tornar um gargalo ou quando estiver processando fluxos massivos de dados.
 

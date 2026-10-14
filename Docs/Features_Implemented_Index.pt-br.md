@@ -77,10 +77,11 @@ Veja a **[Matriz de Compatibilidade Delphi](Delphi_Compatibility_Matrix.md)** pa
 ### 1.4 JSON Engine (`Dext.Json`, `Dext.Json.Types`)
 - **TDextJson** — Fachada estática de serialização/deserialização com `Serialize<T>` e `Deserialize<T>`.
 - **Driver Architecture** — `IDextJsonProvider` plugável (`DextJsonDataObjects` padrão, `System.JSON` alternativo). Drivers implementam `CreateObject`, `CreateArray`, `Parse`.
-- **TJsonSettings (Fluent Record API)** — Configuração imutável via chaining: `.CamelCase`, `.SnakeCase`, `.PascalCase`, `.EnumAsString`, `.EnumAsNumber`, `.IgnoreNullValues`, `.CaseInsensitive`, `.ISODateFormat`, `.UnixTimestamp`, `.CustomDateFormat(fmt)`, `.ServiceProvider(p)`.
+- **TJsonSettings (Fluent Record API)** — Configuração imutável via chaining: `.CamelCase`, `.SnakeCase`, `.PascalCase`, `.EnumAsString`, `.EnumAsNumber`, `.IgnoreNullValues`, `.CaseInsensitive`, `.ISODateFormat`, `.UnixTimestamp`, `.CustomDateFormat(fmt)`, `.BytesAsBase64(b)`, `.ServiceProvider(p)`.
 - **Automatic Casing** (`TCaseStyle`) — 5 modos: `CaseInherit`, `Unchanged`, `CamelCase`, `PascalCase`, `SnakeCase`. Aplicado automaticamente durante serialização.
 - **Enum Serialization** (`TEnumStyle`) — `AsString` (nome RTTI do enum, o padrão) ou `AsNumber` (ordinal), igual para classes, records, arrays e listas; a leitura aceita os dois. Para manter números em tudo: `JsonDefaultSettings(TJsonSettings.Default.EnumAsNumber)`.
 - **Date Formats** (`TDateFormat`) — `ISO8601`, `UnixTimestamp`, `CustomFormat`. Default: `yyyy-mm-dd"T"hh:nn:ss.zzz`.
+- **Dados Binários** — `TBytes` (e qualquer array dinâmico de `Byte`) é escrito como string Base64 em uma linha, com padding (RFC 4648, OpenAPI `format: byte`), em classes, records, arrays, listas e na raiz. A leitura aceita Base64 (também o alfabeto URL, sem padding, com quebras de linha MIME) e um array de números 0..255; qualquer outra coisa gera exceção com o nome do campo. `.BytesAsBase64(False)` escreve o array de números.
 - **DOM Abstraction** — `IDextJsonNode`, `IDextJsonObject`, `IDextJsonArray` com tipagem forte (6 node types: Null, String, Number, Boolean, Object, Array).
 - **TJsonBuilder** — Builder fluente para construção programática de JSON sem strings.
 - **Atributos** — `[JsonName]` (renomear campo), `[JsonIgnore]` (excluir campo na escrita e na leitura; `TJsonIgnoreMode.OnWrite`/`OnRead` para um sentido só), `[JsonPublishedOnly]` (só propriedades published, nos dois sentidos), `[JsonCaseStyle]` (override por classe).
