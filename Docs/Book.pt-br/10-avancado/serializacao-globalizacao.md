@@ -216,6 +216,31 @@ A leitura aceita as formas que outros sistemas escrevem: Base64 padrão, o alfab
 
 Para escrever o array de números (para um cliente que o espera): `TJsonSettings.Default.BytesAsBase64(False)`.
 
+### Atributos de Formato
+Quatro atributos mudam a forma como um membro é escrito, em propriedades de classes e campos de records, e o mesmo membro é lido de volta nessa forma:
+
+| atributo | em | escrito como | lido |
+|---|---|---|---|
+| `[JsonFormat('dd/mm/yyyy')]` | `TDateTime`, `TDate`, `TTime` | o formato, com as configurações invariantes (`/` e `:` como escritos, qualquer que seja o locale) | o formato; também uma data padrão |
+| `[JsonString]` | inteiros, floats, `Currency`, `Boolean` | uma string: `"9007199254740993"`, `"12.5"`, `"true"` | uma string ou o valor normal |
+| `[JsonNumber]` | `string` | um número; texto vazio é `null`, texto que não é número continua texto | um número ou uma string |
+| `[JsonBoolean]` | inteiros | `true`/`false` (0 é `false`) | um Boolean ou um número |
+
+```pascal
+type
+  TOrder = class
+  public
+    [JsonString]  // além de 2^53 um número JavaScript perde dígitos
+    property Id: Int64 read FId write FId;
+    [JsonFormat('yyyymmdd')]
+    property Day: TDate read FDay write FDay;
+  end;
+
+// {"Id":"9007199254740993","Day":"20260715"}
+```
+
+`[JsonFormat]` lê de volta formatos feitos de `yyyy yy mm m dd d hh h nn n ss s zzz z` e texto fixo (`TJsonUtils.TryParseDateWithFormat`). Um formato que não pode ser lido de volta (nomes de meses, `am/pm`), dois desses atributos no mesmo membro, ou um atributo num tipo que ele não pode mudar geram `EDextJsonException` na primeira serialização da classe ou do record: um atributo que não faz nada nunca fica em silêncio.
+
 > [!TIP]
 > Use o **Dext DOM** para o desenvolvimento diário de suas APIs. Mude para o **Dext UTF-8** apenas quando o consumo de memória se tornar um gargalo ou quando estiver processando fluxos massivos de dados.
 
