@@ -241,7 +241,8 @@ begin
          (FieldInfo.TypeInfo = TypeInfo(TTime)) then
       begin
          DateStr := AReader.GetString;
-         if TryParseCommonDate(DateStr, Dt) then
+         // The standard forms first: a zone is converted to local time
+         if TJsonUtils.TryJsonTextToDate(DateStr, FieldInfo.TypeInfo, Dt) then
            PDateTime(P)^ := Dt
          else
            PDateTime(P)^ := 0;

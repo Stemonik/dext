@@ -199,6 +199,7 @@ implementation
 
 uses
   Dext.Core.Activator,
+  Dext.Core.DateUtils,
   Dext.Core.ValueConverters,
   Dext.DI.Core;
 
@@ -1291,8 +1292,14 @@ begin
             DTVal := 0;
             Parsed := False;
             S := DecodedValue.Trim;
+            // The JSON forms first (Dext.Core.DateUtils): milliseconds, and a
+            // 'Z' or an offset converted to local time
+            if AType = TypeInfo(TTime) then
+              Parsed := TryParseJsonTime(S, DTVal)
+            else
+              Parsed := TryParseJsonDateTime(S, DTVal);
             // Check for ISO date pattern: starts with 4 digits, dash, 2 digits, dash, 2 digits
-            if (Length(S) >= 10) and (S[5] = '-') and (S[8] = '-') then
+            if not Parsed and (Length(S) >= 10) and (S[5] = '-') and (S[8] = '-') then
             begin
               try
                 Y := StrToInt(Copy(S, 1, 4));

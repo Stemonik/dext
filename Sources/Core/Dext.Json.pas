@@ -165,6 +165,28 @@ type
   TJsonUtils = record
   public
     class function ToCamelCase(const S: string): string; static;
+    /// <summary>True for TDateTime, TDate and TTime.</summary>
+    class function IsDateType(AType: PTypeInfo): Boolean; static;
+    /// <summary>
+    ///   The JSON text of a date, the same on every path. With
+    ///   TDateFormat.ISO8601 (the default) the standard (RFC 3339 / ISO 8601):
+    ///   a TDateTime is the local time with its UTC offset
+    ///   ("2026-07-15T10:30:00.000+02:00", Dext.Core.DateUtils.FormatJsonDateTime),
+    ///   a TDate the calendar day ("2026-07-15"), a TTime the wall clock
+    ///   ("10:30:00.000"). Otherwise FormatDateTime(ASettings.DateFormat), as
+    ///   before (records write TDateFormat.UnixTimestamp as a number).
+    /// </summary>
+    class function DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
+      const ASettings: TJsonSettings): string; static;
+    /// <summary>
+    ///   Reads a JSON date for a TDateTime, TDate or TTime: the standard forms
+    ///   first (a 'Z' or an offset is converted to local time, no zone is local
+    ///   time; Dext.Core.DateUtils.TryParseJsonDateTime / TryParseJsonTime),
+    ///   then the other forms TryParseCommonDate knows. A TDate keeps the day,
+    ///   a TTime the time of day.
+    /// </summary>
+    class function TryJsonTextToDate(const AText: string; AType: PTypeInfo;
+      out AValue: TDateTime): Boolean; static;
     class function ToPascalCase(const S: string): string; static;
     class function ToSnakeCase(const S: string): string; static;
     class function ApplyCaseStyle(const S: string; Style: TCaseStyle): string; static;
@@ -688,6 +710,53 @@ begin
 end;
 
 { TJsonUtils }
+
+class function TJsonUtils.IsDateType(AType: PTypeInfo): Boolean;
+begin
+  Result := (AType = TypeInfo(TDateTime)) or (AType = TypeInfo(TDate)) or
+    (AType = TypeInfo(TTime));
+end;
+
+class function TJsonUtils.DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
+  const ASettings: TJsonSettings): string;
+begin
+  if ASettings.DateFormatStyle <> TDateFormat.ISO8601 then
+    Result := FormatDateTime(ASettings.DateFormat, AValue)
+  else if AType = TypeInfo(TDate) then
+    Result := FormatJsonDate(AValue)
+  else if AType = TypeInfo(TTime) then
+    Result := FormatJsonTime(AValue)
+  else
+    Result := FormatJsonDateTime(AValue);
+end;
+
+class function TJsonUtils.TryJsonTextToDate(const AText: string; AType: PTypeInfo;
+  out AValue: TDateTime): Boolean;
+begin
+  if AType = TypeInfo(TTime) then
+    Result := TryParseJsonTime(AText, AValue)
+  else
+    Result := TryParseJsonDateTime(AText, AValue);
+  if not Result then
+    Result := TryParseCommonDate(AText, AValue);
+  if not Result then
+    Exit;
+  if AType = TypeInfo(TDate) then
+    AValue := Trunc(AValue)
+  else if AType = TypeInfo(TTime) then
+    AValue := Frac(AValue);
+end;
+
+// A JSON string read into a TDateTime, TDate or TTime of type AType;
+// EDextJsonException when it is not a date.
+function DateValueFromJsonText(const AText: string; AType: PTypeInfo): TValue;
+var
+  D: TDateTime;
+begin
+  if not TJsonUtils.TryJsonTextToDate(AText, AType, D) then
+    raise EDextJsonException.CreateFmt('"%s" is not a date', [AText]);
+  TValue.Make(@D, AType, Result);
+end;
 
 class function TJsonUtils.ToCamelCase(const S: string): string;
 var
@@ -1771,10 +1840,15 @@ begin
         nkCurrency:
           Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadCurrency(Obj, Item^.DirectOffset));
         nkDouble:
-          Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset));
+          // A TDate or TTime on the direct path is a date, not a number
+          if Item^.Kind = skDateTime then
+            Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
+              TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings))
+          else
+            Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset));
         nkDateTime:
-          Result.SetString(Item^.JsonName, FormatDateTime(FSettings.DateFormat,
-            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset)));
+          Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
+            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings));
         nkString:
           Result.SetString(Item^.JsonName, TDextDirectAccess.ReadString(Obj, Item^.DirectOffset));
         nkGuid:
@@ -1886,7 +1960,8 @@ begin
       skFloat:
         Result.SetDouble(Item^.JsonName, PropValue.AsExtended);
       skDateTime:
-        Result.SetString(Item^.JsonName, FormatDateTime(FSettings.DateFormat, PropValue.AsExtended));
+        Result.SetString(Item^.JsonName,
+          TJsonUtils.DateToJsonText(PropValue.AsExtended, Item^.ValueTypeInfo, FSettings));
       skString:
         Result.SetString(Item^.JsonName, PropValue.AsString);
       skBoolean:
@@ -2158,7 +2233,8 @@ begin
             nkDateTime:
               if Node.GetNodeType = jntString then
               begin
-                TDextDirectAccess.WriteDouble(Instance, DirectField.Offset, ISO8601ToDate(Node.AsString));
+                TDextDirectAccess.WriteDouble(Instance, DirectField.Offset,
+                  DateValueFromJsonText(Node.AsString, TypeInfo(TDateTime)).AsExtended);
                 Continue;
               end
               else if Node.GetNodeType = jntNumber then
@@ -2251,7 +2327,11 @@ begin
         end;
         case Node.GetNodeType of
           jntString:
-            Val := TValue.From<string>(Node.AsString);
+            // A date: the standard forms, the zone converted to local time
+            if TJsonUtils.IsDateType(Prop.PropertyType.Handle) then
+              Val := DateValueFromJsonText(Node.AsString, Prop.PropertyType.Handle)
+            else
+              Val := TValue.From<string>(Node.AsString);
           jntNumber:
             begin
               case Prop.PropertyType.TypeKind of
@@ -2407,7 +2487,12 @@ begin
     end;
 
     case Node.GetNodeType of
-      jntString: Val := TValue.From<string>(Node.AsString);
+      jntString:
+        // A date: the standard forms, the zone converted to local time
+        if TJsonUtils.IsDateType(Item^.FieldTypeInfo) then
+          Val := DateValueFromJsonText(Node.AsString, Item^.FieldTypeInfo)
+        else
+          Val := TValue.From<string>(Node.AsString);
       jntNumber:
         begin
           if (Item^.FieldTypeInfo = TypeInfo(Integer)) then
@@ -2733,7 +2818,8 @@ begin
           else
             case FSettings.DateFormatStyle of
               TDateFormat.ISO8601:
-                Result.SetString(FieldName, FormatDateTime(FSettings.DateFormat, FieldValue.AsExtended));
+                Result.SetString(FieldName,
+                  TJsonUtils.DateToJsonText(FieldValue.AsExtended, Item^.FieldTypeInfo, FSettings));
               TDateFormat.UnixTimestamp:
                 Result.SetInt64(FieldName, DateTimeToUnix(FieldValue.AsExtended));
               TDateFormat.CustomFormat:
@@ -2901,8 +2987,8 @@ begin
 
     tkFloat:
       begin
-        if AValue.TypeInfo = TypeInfo(TDateTime) then
-          Result.SetString(ValueField, FormatDateTime(FSettings.DateFormat, AValue.AsExtended))
+        if TJsonUtils.IsDateType(AValue.TypeInfo) then
+          Result.SetString(ValueField, TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
         else
           Result.SetDouble(ValueField, AValue.AsExtended);
       end;
@@ -3070,8 +3156,8 @@ begin
         tkInt64:
           ElementValue := TValue.From<Int64>(AJson.GetInt64(I));
         tkFloat:
-          if ElementType = TypeInfo(TDateTime) then
-            ElementValue := TValue.From<TDateTime>(ISO8601ToDate(AJson.GetString(I)))
+          if TJsonUtils.IsDateType(ElementType) and (Node <> nil) and (Node.GetNodeType = jntString) then
+            ElementValue := DateValueFromJsonText(Node.AsString, ElementType)
           else
             ElementValue := TValue.From<Double>(AJson.GetDouble(I));
         tkString, tkLString, tkWString, tkUString:
@@ -3276,8 +3362,8 @@ begin
           tkInteger: ElementValue := TValue.From<Integer>(AJson.GetInteger(I));
           tkInt64: ElementValue := TValue.From<Int64>(AJson.GetInt64(I));
           tkFloat:
-            if ElementType = TypeInfo(TDateTime) then
-              ElementValue := TValue.From<TDateTime>(ISO8601ToDate(AJson.GetString(I)))
+            if TJsonUtils.IsDateType(ElementType) and (Node <> nil) and (Node.GetNodeType = jntString) then
+              ElementValue := DateValueFromJsonText(Node.AsString, ElementType)
             else
               ElementValue := TValue.From<Double>(AJson.GetDouble(I));
           tkString, tkLString, tkWString, tkUString:
@@ -3499,8 +3585,8 @@ begin
       tkInt64:
         Result.Add(ElementValue.AsInt64);
       tkFloat:
-        if ElementType = TypeInfo(TDateTime) then
-          Result.Add(FormatDateTime(FSettings.DateFormat, ElementValue.AsExtended))
+        if TJsonUtils.IsDateType(ElementType) then
+          Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementType, FSettings))
         else
           Result.Add(ElementValue.AsExtended);
       tkString, tkLString, tkWString, tkUString:
@@ -3603,7 +3689,10 @@ begin
         tkInteger, tkInt64:
           Result.Add(ElementValue.AsInt64);
         tkFloat:
-          Result.Add(ElementValue.AsExtended);
+          if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
+            Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+          else
+            Result.Add(ElementValue.AsExtended);
         tkString, tkLString, tkWString, tkUString:
           Result.Add(ElementValue.AsString);
         tkEnumeration:
@@ -3662,7 +3751,10 @@ begin
           tkInteger, tkInt64:
             Result.Add(ElementValue.AsInt64);
           tkFloat:
-            Result.Add(ElementValue.AsExtended);
+            if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
+              Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+            else
+              Result.Add(ElementValue.AsExtended);
           tkString, tkLString, tkWString, tkUString:
             Result.Add(ElementValue.AsString);
           tkEnumeration:
