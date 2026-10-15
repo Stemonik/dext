@@ -466,6 +466,33 @@ begin
   Result := True;
 end;
 
+// A date and time written with the offset AOffset (minutes, local - UTC), as
+// the local time of this machine; AYearNumber is the year of the digits.
+// The offset of the local time comes from the per-year cache, away from the
+// days it changes: the offset at the digits, checked on the local day the
+// value lands on. It is the same whether AOffset is the local one (a value
+// written here) or another ('Z', a client elsewhere). Otherwise TTimeZone
+// works it out, as before. Either way the offset is added to the instant in
+// UTC with IncMinute, the arithmetic of TTimeZone.ToLocalTime (IncSecond):
+// the same value, to the last bit.
+function ZoneToLocal(const ADigits: TDateTime; AYearNumber, AOffset: Integer): TDateTime;
+var
+  Utc: TDateTime;
+  Local, Landed: Integer;
+begin
+  Utc := ADigits - AOffset / MinsPerDay;
+  if (ADigits >= 1) and CachedOffset(AYearNumber, Trunc(ADigits), Local) then
+  begin
+    Result := IncMinute(Utc, Local);
+    // With the local offset the value lands on the day of the digits
+    if Local = AOffset then
+      Exit;
+    if (Result >= 1) and CachedOffset(YearOf(Result), Trunc(Result), Landed) and (Landed = Local) then
+      Exit;
+  end;
+  Result := TTimeZone.Local.ToLocalTime(Utc);
+end;
+
 function TryParseJsonDateTime(const AText: string; out AValue: TDateTime): Boolean;
 var
   S: string;
@@ -491,8 +518,7 @@ begin
     Exit;
   AValue := Day + Clock;
   if HasZone then
-    // The instant in UTC, then the local time of this machine
-    AValue := TTimeZone.Local.ToLocalTime(AValue - Offset / MinsPerDay);
+    AValue := ZoneToLocal(AValue, Y, Offset);
   Result := True;
 end;
 

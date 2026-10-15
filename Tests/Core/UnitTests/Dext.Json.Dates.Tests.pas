@@ -72,6 +72,8 @@ type
     procedure Read_DateAndLocal;
     [Test('Reading: Z and an offset are converted to local time')]
     procedure Read_ZoneToLocal;
+    [Test('Reading every three hours from 1970 to 2040, with the local offset, Z and two others: the value of TTimeZone.ToLocalTime, to the bit')]
+    procedure Read_ManyZones_SameAsToLocalTime;
     [Test('Reading: what is not a JSON date is refused')]
     procedure Read_Refused;
     [Test('Reading a time of day')]
@@ -340,6 +342,40 @@ begin
   // Across midnight
   ShouldDate(Parse('2026-07-16T01:00:00+09:00')).Be(
     TTimeZone.Local.ToLocalTime(EncodeDateTime(2026, 7, 15, 16, 0, 0, 0)));
+end;
+
+procedure TJsonDatesTests.Read_ManyZones_SameAsToLocalTime;
+var
+  V: TDateTime;
+  Wrong, Count: Integer;
+
+  // The digits of V with the offset AOffset (minutes), read back, against
+  // the instant converted by TTimeZone
+  procedure Check(AOffset: Integer);
+  var
+    Read: TDateTime;
+  begin
+    Inc(Count);
+    if not TryParseJsonDateTime(Digits(V) + OffsetText(AOffset), Read) or
+       (Read <> TTimeZone.Local.ToLocalTime(V - AOffset / MinsPerDay)) then
+      Inc(Wrong);
+  end;
+
+begin
+  // Every three hours plus 17.123 seconds: the days the offset changes included
+  Wrong := 0;
+  Count := 0;
+  V := EncodeDate(1970, 1, 1) + EncodeTime(0, 0, 17, 123);
+  while V < EncodeDate(2041, 1, 1) do
+  begin
+    Check(ExpectedOffset(V));
+    Check(0);
+    Check(330);
+    Check(-300);
+    V := IncHour(V, 3);
+  end;
+  Should(Wrong).Be(0);
+  Should(Count > 800000).BeTrue;
 end;
 
 procedure TJsonDatesTests.Read_Refused;
