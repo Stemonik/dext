@@ -258,6 +258,9 @@ end;
 
 class function TJsonSettings.Default: TJsonSettings;
 begin
+  // Result is the caller's storage, already initialized: release its managed
+  // fields before zeroing it, or the strings and interfaces it held are leaked.
+  Finalize(Result);
   FillChar(Result, SizeOf(Result), 0);
   Result.Formatting := TJsonFormatting.None;
   Result.FIgnoreNullValues := False;
