@@ -354,7 +354,12 @@ begin
        // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z' on
        // the local time
        if TJsonUtils.IsDateType(AVal.TypeInfo) then
-         Result := '"' + TJsonUtils.DateToJsonText(AVal.AsExtended, AVal.TypeInfo, ASettings) + '"'
+       begin
+         if TJsonUtils.IsNoDate(AVal.AsExtended, AVal.TypeInfo, ASettings) then
+           Result := 'null'
+         else
+           Result := '"' + TJsonUtils.DateToJsonText(AVal.AsExtended, AVal.TypeInfo, ASettings) + '"';
+       end
        else
          Result := FloatToStr(AVal.AsExtended, TFormatSettings.Invariant);
      end;
@@ -1027,7 +1032,12 @@ begin
         // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z'
         // on the local time
         if TJsonUtils.IsDateType(AValue.TypeInfo) then
-          WriteString(TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
+        begin
+          if TJsonUtils.IsNoDate(AValue.AsExtended, AValue.TypeInfo, FSettings) then
+            WriteNull
+          else
+            WriteString(TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings));
+        end
         else
           WriteNumber(AValue.AsType<Double>);
       end;
