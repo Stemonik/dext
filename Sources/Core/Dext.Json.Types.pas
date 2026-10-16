@@ -151,7 +151,9 @@ type
     /// <summary>
     ///   A TDateTime or TDate that is 0 (1899-12-30, "no date") is written as
     ///   null instead of "1899-12-30T00:00:00.000" (dropped with
-    ///   IgnoreNullValues). A TTime is left alone: 0 is midnight there.
+    ///   IgnoreNullValues), on every path: class properties, record fields,
+    ///   array elements, single values. A TTime is left alone: 0 is midnight
+    ///   there. On by default; ZeroDateAsNull(False) writes the zero date.
     /// </summary>
     function ZeroDateAsNull(AValue: Boolean = True): TJsonSettings;
     /// <summary>
@@ -218,7 +220,7 @@ begin
   Result.EnumStyle := TEnumStyle.AsString;
   Result.FCaseInsensitive := False;
   Result.FSmartRecordMapping := True; // Default is True
-  Result.FZeroDateAsNull := False;
+  Result.FZeroDateAsNull := True;
   Result.FKeepDefaultEnums := False;
   Result.FBytesAsBase64 := True;
 end;

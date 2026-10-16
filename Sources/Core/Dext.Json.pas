@@ -179,6 +179,13 @@ type
     class function DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
       const ASettings: TJsonSettings): string; static;
     /// <summary>
+    ///   True when a date is written as null: a TDateTime or TDate that is 0
+    ///   ("no date") with ZeroDateAsNull, the default. A TTime never is: 0 is
+    ///   midnight there. Every path that writes a date asks this first.
+    /// </summary>
+    class function IsNoDate(const AValue: TDateTime; AType: PTypeInfo;
+      const ASettings: TJsonSettings): Boolean; static; inline;
+    /// <summary>
     ///   Reads a JSON date for a TDateTime, TDate or TTime: the standard forms
     ///   first (a 'Z' or an offset is converted to local time, no zone is local
     ///   time; Dext.Core.DateUtils.TryParseJsonDateTime / TryParseJsonTime),
@@ -530,6 +537,11 @@ type
     function SerializeRecord(const AValue: TValue): IDextJsonObject;
     function SerializeObject(const AValue: TValue): IDextJsonObject;
     function ShouldSkipField(AField: TRttiField; const AValue: TValue): Boolean;
+    // A date member or array element: null when TJsonUtils.IsNoDate, else the text
+    procedure SetDateMember(const AObj: IDextJsonObject; const AName: string;
+      const AValue: TDateTime; AType: PTypeInfo);
+    procedure AddDateElement(const AArray: IDextJsonArray; const AValue: TDateTime;
+      AType: PTypeInfo);
 
     function JsonToValue(AJson: IDextJsonObject; AType: PTypeInfo): TValue;
     function ValueToJson(const AValue: TValue): IDextJsonObject;
@@ -760,6 +772,13 @@ class function TJsonUtils.IsDateType(AType: PTypeInfo): Boolean;
 begin
   Result := (AType = TypeInfo(TDateTime)) or (AType = TypeInfo(TDate)) or
     (AType = TypeInfo(TTime));
+end;
+
+class function TJsonUtils.IsNoDate(const AValue: TDateTime; AType: PTypeInfo;
+  const ASettings: TJsonSettings): Boolean;
+begin
+  Result := ASettings.FZeroDateAsNull and (AValue = 0) and
+    (AType <> TypeInfo(TTime));
 end;
 
 class function TJsonUtils.DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
@@ -2163,9 +2182,9 @@ begin
   Result := TDextJson.Provider.CreateObject;
   if Obj = nil then Exit;
 
-  // IgnoreDefaultValues and ZeroDateAsNull: checked only when one is on, so
-  // the default path pays nothing.
-  Defaults := FSettings.IgnoreDefaultValues or FSettings.FZeroDateAsNull;
+  // IgnoreDefaultValues: checked only when it is on, so the default path pays
+  // nothing. "No date" (TJsonUtils.IsNoDate) is checked where a date is written.
+  Defaults := FSettings.IgnoreDefaultValues;
 
   for I := 0 to Plan.Count - 1 do
   begin
@@ -2213,17 +2232,9 @@ begin
               (TDextDirectAccess.ReadString(Obj, Item^.DirectOffset) = '') then
               Continue;
           nkDateTime:
-            if TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset) = 0 then
-            begin
-              if FSettings.IgnoreDefaultValues then
-                Continue;
-              if FSettings.FZeroDateAsNull then
-              begin
-                if not FSettings.FIgnoreNullValues then
-                  Result.SetNull(Item^.JsonName);
-                Continue;
-              end;
-            end;
+            if FSettings.IgnoreDefaultValues and
+              (TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset) = 0) then
+              Continue;
         end;
 
       case Item^.DirectKind of
@@ -2240,13 +2251,13 @@ begin
         nkDouble:
           // A TDate or TTime on the direct path is a date, not a number
           if Item^.Kind = skDateTime then
-            Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
-              TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings))
+            SetDateMember(Result, Item^.JsonName,
+              TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo)
           else
             Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset));
         nkDateTime:
-          Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
-            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings));
+          SetDateMember(Result, Item^.JsonName,
+            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo);
         nkString:
           Result.SetString(Item^.JsonName, TDextDirectAccess.ReadString(Obj, Item^.DirectOffset));
         nkGuid:
@@ -2317,8 +2328,7 @@ begin
       Continue;
     end;
 
-    // Default values and the zero date (same rules as ShouldSkipField for
-    // fields; a TTime of 0 is midnight, not "no date").
+    // Default values (same rules as ShouldSkipField for fields)
     if Defaults then
       case Item^.Kind of
         skInteger:
@@ -2338,18 +2348,18 @@ begin
             (PropValue.AsOrdinal = 0) then
             Continue;
         skDateTime:
-          if PropValue.AsExtended = 0 then
-          begin
-            if FSettings.IgnoreDefaultValues then
-              Continue;
-            if FSettings.FZeroDateAsNull and (Item^.ValueTypeInfo <> TypeInfo(TTime)) then
-            begin
-              if not FSettings.FIgnoreNullValues then
-                Result.SetNull(Item^.JsonName);
-              Continue;
-            end;
-          end;
+          if FSettings.IgnoreDefaultValues and (PropValue.AsExtended = 0) then
+            Continue;
       end;
+
+    // "No date": null, whatever the form the date would be written in
+    if (Item^.Kind = skDateTime) and
+      TJsonUtils.IsNoDate(PropValue.AsExtended, Item^.ValueTypeInfo, FSettings) then
+    begin
+      if not FSettings.FIgnoreNullValues then
+        Result.SetNull(Item^.JsonName);
+      Continue;
+    end;
 
     // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262)
     if Item^.Format.IsSet then
@@ -3216,6 +3226,15 @@ begin
             Continue;
       end;
 
+    // "No date": null, whatever the form the date would be written in
+    if (Item^.Kind = skDateTime) and
+      TJsonUtils.IsNoDate(FieldValue.AsExtended, Item^.FieldTypeInfo, FSettings) then
+    begin
+      if not FSettings.FIgnoreNullValues then
+        Result.SetNull(FieldName);
+      Continue;
+    end;
+
     if (Item^.FieldTypeInfo = TypeInfo(TGUID)) then
     begin
       Result.SetString(FieldName, GetGUIDString(FieldValue));
@@ -3317,6 +3336,28 @@ begin
   Result := SerializeObjectWithPlan(Obj, Plan^);
 end;
 
+procedure TDextSerializer.SetDateMember(const AObj: IDextJsonObject; const AName: string;
+  const AValue: TDateTime; AType: PTypeInfo);
+begin
+  if TJsonUtils.IsNoDate(AValue, AType, FSettings) then
+  begin
+    if not FSettings.FIgnoreNullValues then
+      AObj.SetNull(AName);
+  end
+  else
+    AObj.SetString(AName, TJsonUtils.DateToJsonText(AValue, AType, FSettings));
+end;
+
+procedure TDextSerializer.AddDateElement(const AArray: IDextJsonArray;
+  const AValue: TDateTime; AType: PTypeInfo);
+begin
+  // An element is never dropped: the positions of the others would move
+  if TJsonUtils.IsNoDate(AValue, AType, FSettings) then
+    AArray.AddNull
+  else
+    AArray.Add(TJsonUtils.DateToJsonText(AValue, AType, FSettings));
+end;
+
 function TDextSerializer.ShouldSkipField(AField: TRttiField; const AValue: TValue): Boolean;
 var
   Attribute: TCustomAttribute;
@@ -3394,7 +3435,7 @@ begin
     tkFloat:
       begin
         if TJsonUtils.IsDateType(AValue.TypeInfo) then
-          Result.SetString(ValueField, TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
+          SetDateMember(Result, ValueField, AValue.AsExtended, AValue.TypeInfo)
         else
           Result.SetDouble(ValueField, AValue.AsExtended);
       end;
@@ -3992,7 +4033,7 @@ begin
         Result.Add(ElementValue.AsInt64);
       tkFloat:
         if TJsonUtils.IsDateType(ElementType) then
-          Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementType, FSettings))
+          AddDateElement(Result, ElementValue.AsExtended, ElementType)
         else
           Result.Add(ElementValue.AsExtended);
       tkString, tkLString, tkWString, tkUString:
@@ -4096,7 +4137,7 @@ begin
           Result.Add(ElementValue.AsInt64);
         tkFloat:
           if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
-            Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+            AddDateElement(Result, ElementValue.AsExtended, ElementValue.TypeInfo)
           else
             Result.Add(ElementValue.AsExtended);
         tkString, tkLString, tkWString, tkUString:
@@ -4158,7 +4199,7 @@ begin
             Result.Add(ElementValue.AsInt64);
           tkFloat:
             if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
-              Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+              AddDateElement(Result, ElementValue.AsExtended, ElementValue.TypeInfo)
             else
               Result.Add(ElementValue.AsExtended);
           tkString, tkLString, tkWString, tkUString:
